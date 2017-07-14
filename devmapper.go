@@ -1,10 +1,18 @@
-package main
+/*
+ * Pure Go devicemapper library
+ * Copyright 2017 Daniel Swarbrick
+ *
+ * This package contains some alternatives to functions in
+ * https://github.com/docker/docker/tree/master/pkg/devicemapper, which uses cgo and requires the
+ * actual libdevmapper to build.
+ */
+
+package devmapper
 
 import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"os"
 	"syscall"
 	"unsafe"
 )
@@ -49,14 +57,14 @@ type dmIoctl struct {
 	Data        [7]byte // padding or data
 }
 
-func (dm *devMapper) Close() {
-	syscall.Close(dm.fd)
-}
-
 func (ioc *dmIoctl) packedBytes() []byte {
 	b := new(bytes.Buffer)
 	binary.Write(b, binary.LittleEndian, ioc)
 	return b.Bytes()
+}
+
+func (dm *devMapper) Close() {
+	syscall.Close(dm.fd)
 }
 
 func (dm *devMapper) ioctl(cmd uintptr, dmi *dmIoctl) ([]byte, error) {
@@ -91,7 +99,7 @@ type devMapper struct {
 	version [3]uint32
 }
 
-func newDevMapper() (devMapper, error) {
+func NewDevMapper() (devMapper, error) {
 	var err error
 
 	dm := devMapper{}
@@ -107,16 +115,4 @@ func newDevMapper() (devMapper, error) {
 	dm.version = dmi.Version
 
 	return dm, nil
-}
-
-func main() {
-	dm, err := newDevMapper()
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-
-	defer dm.Close()
-
-	fmt.Printf("%#v\n", dm)
 }

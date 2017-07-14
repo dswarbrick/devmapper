@@ -6,7 +6,7 @@
  * See https://www.kernel.org/doc/Documentation/ioctl/ioctl-number.txt
  */
 
-package main
+package devmapper
 
 import "syscall"
 
