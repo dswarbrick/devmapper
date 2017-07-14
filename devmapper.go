@@ -88,7 +88,7 @@ type dmTargetSpec struct {
 	Next        uint32
 	TargetType  [DM_MAX_TYPE_NAME]byte
 	// Parameter string starts immediately after this object.
-}
+} // 40 bytes
 
 type dmTarget struct {
 	Start  uint64

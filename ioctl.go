@@ -59,3 +59,16 @@ func ioctl(fd, cmd, ptr uintptr) error {
 	}
 	return nil
 }
+
+// The following two functions are waiting on the addition of equivalent functions in x/sys/unix.
+// See https://github.com/golang/go/issues/8106
+
+// major returns the major number of a device
+func major(dev uint64) uint64 {
+	return ((dev >> 8) & 0xfff) | ((dev >> 32) &^ 0xfff)
+}
+
+// minor returns the minor number of a device
+func minor(dev uint64) uint64 {
+	return (dev & 0xff) | ((dev >> 12) &^ 0xff)
+}
