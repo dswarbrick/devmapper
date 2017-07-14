@@ -13,13 +13,15 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"syscall"
 	"unsafe"
 )
 
 const (
-	DM_NAME_LEN = 128
-	DM_UUID_LEN = 129
+	DM_MAX_TYPE_NAME = 16
+	DM_NAME_LEN      = 128
+	DM_UUID_LEN      = 129
 
 	DM_IOCTL = 0xfd
 )
@@ -35,14 +37,30 @@ const (
 	DM_VERSION_CMD = iota
 	DM_REMOVE_ALL_CMD
 	DM_LIST_DEVICES_CMD
+
+	// Device level commands
+	DM_DEV_CREATE_CMD
+	DM_DEV_REMOVE_CMD
+	DM_DEV_RENAME_CMD
+	DM_DEV_SUSPEND_CMD
+	DM_DEV_STATUS_CMD
+	DM_DEV_WAIT_CMD
+
+	// Table level commands
+	DM_TABLE_LOAD_CMD
+	DM_TABLE_CLEAR_CMD
+	DM_TABLE_DEPS_CMD
+	DM_TABLE_STATUS_CMD
 )
 
 var (
 	sizeofDmIoctl = uintptr(binary.Size(dmIoctl{}))
 
-	DM_VERSION = _iowr(DM_IOCTL, DM_VERSION_CMD, sizeofDmIoctl)
-
+	DM_VERSION      = _iowr(DM_IOCTL, DM_VERSION_CMD, sizeofDmIoctl)
 	DM_LIST_DEVICES = _iowr(DM_IOCTL, DM_LIST_DEVICES_CMD, sizeofDmIoctl)
+	DM_TABLE_STATUS = _iowr(DM_IOCTL, DM_TABLE_STATUS_CMD, sizeofDmIoctl)
+
+	nativeEndian binary.ByteOrder
 )
 
 // Devmapper ioctl struct, defined in Linux header <uapi/linux/dm-ioctl.h>
@@ -59,6 +77,24 @@ type dmIoctl struct {
 	Name        [DM_NAME_LEN]byte
 	Uuid        [DM_UUID_LEN]byte
 	Data        [7]byte // padding or data
+} // 312 bytes
+
+// Used to specify tables. These structures appear after the dmIoctl at location specified by
+// DataStart. Defined in Linux header <uapi/linux/dm-ioctl.h>
+type dmTargetSpec struct {
+	SectorStart uint64
+	Length      uint64
+	Status      int32
+	Next        uint32
+	TargetType  [DM_MAX_TYPE_NAME]byte
+	// Parameter string starts immediately after this object.
+}
+
+type dmTarget struct {
+	Start  uint64
+	Length uint64
+	Type   string
+	Params string
 }
 
 type dmDevice struct {
@@ -71,9 +107,20 @@ type devMapper struct {
 	version [3]uint32
 }
 
+// Determine native endianness of system
+func init() {
+	i := uint32(1)
+	b := (*[4]byte)(unsafe.Pointer(&i))
+	if b[0] == 1 {
+		nativeEndian = binary.LittleEndian
+	} else {
+		nativeEndian = binary.BigEndian
+	}
+}
+
 func (ioc *dmIoctl) packedBytes() []byte {
 	b := new(bytes.Buffer)
-	binary.Write(b, binary.LittleEndian, ioc)
+	binary.Write(b, nativeEndian, ioc)
 	return b.Bytes()
 }
 
@@ -97,7 +144,7 @@ func (dm *devMapper) ioctl(cmd uintptr, dmi *dmIoctl) ([]byte, error) {
 		}
 
 		// Read ioctl response buffer back into dmi struct
-		binary.Read(bytes.NewReader(buf), binary.LittleEndian, dmi)
+		binary.Read(bytes.NewReader(buf), nativeEndian, dmi)
 
 		if dmi.Flags&DM_BUFFER_FULL_FLAG == 0 {
 			return buf, nil
@@ -126,6 +173,7 @@ func NewDevMapper() (devMapper, error) {
 	return dm, nil
 }
 
+// ListDevices returns a list of devmapper devices
 func (dm *devMapper) ListDevices() ([]dmDevice, error) {
 	var (
 		dmName struct {
@@ -149,7 +197,7 @@ func (dm *devMapper) ListDevices() ([]dmDevice, error) {
 	for {
 		var name []byte
 
-		binary.Read(r, binary.LittleEndian, &dmName)
+		binary.Read(r, nativeEndian, &dmName)
 
 		if dmName.Next != 0 {
 			// Make byte array large enough to hold the bytes up until next struct head
@@ -169,6 +217,42 @@ func (dm *devMapper) ListDevices() ([]dmDevice, error) {
 	}
 
 	return devices, nil
+}
+
+func (dm *devMapper) TableStatus(dev uint64) ([]dmTarget, error) {
+	var tgt dmTargetSpec
+
+	// TODO: Move command version numbers to central location, like the C libdevmapper does
+	dmi := dmIoctl{Version: [3]uint32{4, 0, 0}, Dev: dev}
+
+	buf, err := dm.ioctl(DM_TABLE_STATUS, &dmi)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reader spanning the dm ioctl reponse payload
+	r := bytes.NewReader(buf[dmi.DataStart : dmi.DataStart+dmi.DataSize])
+	targets := make([]dmTarget, dmi.TargetCount)
+
+	// Iterate over targets, reading into dmTargetSpec struct
+	for x := 0; x < int(dmi.TargetCount); x++ {
+		binary.Read(r, nativeEndian, &tgt)
+
+		// Get reader position
+		pos, _ := r.Seek(0, io.SeekCurrent)
+
+		params := make([]byte, int64(tgt.Next)-pos)
+		r.Read(params)
+
+		targets[x] = dmTarget{
+			Start:  tgt.SectorStart,
+			Length: tgt.Length,
+			Type:   string(bytes.TrimRight(tgt.TargetType[:], "\x00")),
+			Params: string(bytes.TrimRight(params, "\x00")),
+		}
+	}
+
+	return targets, nil
 }
 
 // Version returns a string containing the x.y.z version number of the kernel devmapper
