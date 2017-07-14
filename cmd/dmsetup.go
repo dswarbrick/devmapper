@@ -16,5 +16,8 @@ func main() {
 
 	defer dm.Close()
 
-	fmt.Printf("%#v\n", dm)
+	fmt.Printf("Kernel devmapper version: %s\n", dm.Version())
+
+	devList, _ := dm.ListDevices()
+	fmt.Printf("devices: %#v\n", devList)
 }
