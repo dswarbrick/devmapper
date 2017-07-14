@@ -63,9 +63,15 @@ var (
 	nativeEndian binary.ByteOrder
 )
 
+type dmVersion [3]uint32
+
+func (v dmVersion) String() string {
+	return fmt.Sprintf("%d.%d.%d", v[0], v[1], v[2])
+}
+
 // Devmapper ioctl struct, defined in Linux header <uapi/linux/dm-ioctl.h>
 type dmIoctl struct {
-	Version     [3]uint32
+	Version     dmVersion
 	DataSize    uint32
 	DataStart   uint32
 	TargetCount uint32
@@ -104,7 +110,7 @@ type dmDevice struct {
 
 type devMapper struct {
 	fd      int
-	version [3]uint32
+	version dmVersion
 }
 
 // Determine native endianness of system
@@ -166,7 +172,7 @@ func NewDevMapper() (devMapper, error) {
 	}
 
 	// Query and store the version number
-	dmi := dmIoctl{Version: [3]uint32{4, 0, 0}}
+	dmi := dmIoctl{Version: dmVersion{4, 0, 0}}
 	dm.ioctl(DM_VERSION, &dmi)
 	dm.version = dmi.Version
 
@@ -184,7 +190,7 @@ func (dm *devMapper) ListDevices() ([]dmDevice, error) {
 	)
 
 	// TODO: Move command version numbers to central location, like the C libdevmapper does
-	dmi := dmIoctl{Version: [3]uint32{4, 0, 0}}
+	dmi := dmIoctl{Version: dmVersion{4, 0, 0}}
 
 	buf, err := dm.ioctl(DM_LIST_DEVICES, &dmi)
 	if err != nil {
@@ -223,7 +229,7 @@ func (dm *devMapper) TableStatus(dev uint64) ([]dmTarget, error) {
 	var tgt dmTargetSpec
 
 	// TODO: Move command version numbers to central location, like the C libdevmapper does
-	dmi := dmIoctl{Version: [3]uint32{4, 0, 0}, Dev: dev}
+	dmi := dmIoctl{Version: dmVersion{4, 0, 0}, Dev: dev}
 
 	buf, err := dm.ioctl(DM_TABLE_STATUS, &dmi)
 	if err != nil {
@@ -256,6 +262,6 @@ func (dm *devMapper) TableStatus(dev uint64) ([]dmTarget, error) {
 }
 
 // Version returns a string containing the x.y.z version number of the kernel devmapper
-func (dm *devMapper) Version() string {
-	return fmt.Sprintf("%d.%d.%d", dm.version[0], dm.version[1], dm.version[2])
+func (dm *devMapper) Version() dmVersion {
+	return dm.version
 }
