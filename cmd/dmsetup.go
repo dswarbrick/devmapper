@@ -1,7 +1,8 @@
 package main
 
-// #cgo LDFLAGS: -llvm2app
+// #cgo LDFLAGS: -ldevmapper -llvm2app
 // #include <stdlib.h>
+// #include <libdevmapper.h>
 // #include <lvm2app.h>
 import "C"
 
@@ -92,6 +93,26 @@ func (vg *CVolumeGroup) getFreeExtentCount() uint64 {
 	return uint64(C.lvm_vg_get_free_extent_count((*C.struct_volume_group)(vg)))
 }
 
+func lvmDemo() {
+	// Get LVM2 handle
+	lvm := initLVM()
+	defer lvm.close()
+
+	fmt.Printf("\nLVM2 handle: %#v\n", lvm)
+	fmt.Printf("VG UUIDs: %#v\n", lvm.getVgUuids())
+	fmt.Printf("VG Names: %#v\n", lvm.getVgNames())
+
+	fmt.Println("VG Name       Size       Free   PE size  PE count  PE free count    Usage")
+
+	for _, name := range lvm.getVgNames() {
+		vg := lvm.openVg(name)
+		fmt.Printf("%-8s %9d  %9d %9d %9d      %9d  %6.2f%%\n",
+			name, vg.getSize(), vg.getFreeSize(), vg.getExtentSize(), vg.getExtentCount(),
+			vg.getFreeExtentCount(), 100*(1-(float64(vg.getFreeSize())/float64(vg.getSize()))))
+		vg.close()
+	}
+}
+
 func main() {
 	dm, err := devmapper.NewDevMapper()
 	if err != nil {
@@ -119,21 +140,46 @@ func main() {
 		fmt.Printf("%#v %#v\n", device, targets)
 	}
 
-	// Get LVM2 handle
-	lvm := initLVM()
-	defer lvm.close()
+	//lvmDemo()
 
-	fmt.Printf("\nLVM2 handle: %#v\n", lvm)
-	fmt.Printf("VG UUIDs: %#v\n", lvm.getVgUuids())
-	fmt.Printf("VG Names: %#v\n", lvm.getVgNames())
+	// Get libdevmapper library version
+	buf := make([]C.char, 64)
+	C.dm_get_library_version(&buf[0], 64)
+	fmt.Printf("libdevmapper version: %s\n", C.GoString(&buf[0]))
 
-	fmt.Println("VG Name       Size       Free   PE size  PE count  PE free count    Usage")
+	// FIXME: Do more thorough error checking
+	task := C.dm_task_create(C.DM_DEVICE_LIST)
+	fmt.Printf("dm_task: %#v\n", task)
 
-	for _, name := range lvm.getVgNames() {
-		vg := lvm.openVg(name)
-		fmt.Printf("%-8s %9d  %9d %9d %9d      %9d  %6.2f%%\n",
-			name, vg.getSize(), vg.getFreeSize(), vg.getExtentSize(), vg.getExtentCount(),
-			vg.getFreeExtentCount(), 100*(1-(float64(vg.getFreeSize())/float64(vg.getSize()))))
-		vg.close()
+	res := C.dm_task_run(task)
+	fmt.Printf("res: %#v\n", res)
+
+	var info C.struct_dm_info
+	res = C.dm_task_get_info(task, &info)
+	fmt.Printf("res: %#v\n", res)
+	fmt.Printf("info: %#v\n", info)
+
+	// Get devmapper device names
+	names := C.dm_task_get_names(task)
+
+	if names.dev != 0 {
+		/*
+			dm_names is a "variable length" struct which is tricky to process due to Go's disdain
+			for pointer arithmetic.
+
+			struct dm_names {
+				uint64_t dev;
+				uint32_t next;      // Offset to next struct from start of this struct
+				char name[0];
+			};
+		*/
+		for dm_dev := names; ; dm_dev = (*C.struct_dm_names)(unsafe.Pointer(uintptr(unsafe.Pointer(dm_dev)) + uintptr(dm_dev.next))) {
+			dev_name := (*C.char)(unsafe.Pointer(&dm_dev.name))
+			fmt.Printf("dm_dev: %#v (%s)\n", dm_dev, C.GoString(dev_name))
+
+			if dm_dev.next == 0 {
+				break
+			}
+		}
 	}
 }
