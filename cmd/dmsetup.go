@@ -1,12 +1,96 @@
 package main
 
+// #cgo LDFLAGS: -llvm2app
+// #include <stdlib.h>
+// #include <lvm2app.h>
+import "C"
+
 import (
 	"fmt"
-	"net"
 	"os"
+	"unsafe"
 
 	"github.com/dswarbrick/devmapper"
 )
+
+// Alias the LVM2 C structs so that we can attach our own methods to them
+type (
+	CLvm         C.struct_lvm
+	CVolumeGroup C.struct_volume_group
+)
+
+func initLVM() *CLvm {
+	// lvm_init returns an lvm_t, which is a pointer to a lvm struct. Since method receivers cannot
+	// receive pointer types, we need to cast it to a *C.struct_lvm before we return it.
+	lvm := C.lvm_init(nil)
+
+	return (*CLvm)(unsafe.Pointer(lvm))
+}
+
+func (lvm *CLvm) close() {
+	C.lvm_quit((*C.struct_lvm)(lvm))
+}
+
+// getVgNames returns a slice of strings containing volume group names
+func (lvm *CLvm) getVgNames() (names []string) {
+	vg_names := C.lvm_list_vg_names((*C.struct_lvm)(lvm))
+
+	for item := vg_names.n; item != vg_names; item = item.n {
+		names = append(names, C.GoString((*C.lvm_str_list_t)(unsafe.Pointer(item)).str))
+	}
+
+	return
+}
+
+// getVgNames returns a slice of strings containing volume group UUIDs
+func (lvm *CLvm) getVgUuids() (uuids []string) {
+	vg_uuids := C.lvm_list_vg_uuids((*C.struct_lvm)(lvm))
+
+	for item := vg_uuids.n; item != vg_uuids; item = item.n {
+		uuids = append(uuids, C.GoString((*C.lvm_str_list_t)(unsafe.Pointer(item)).str))
+	}
+
+	return
+}
+
+func (lvm *CLvm) openVg(name string) *CVolumeGroup {
+	Cname := C.CString(name)
+	Cmode := C.CString("r")
+
+	defer C.free(unsafe.Pointer(Cname))
+	defer C.free(unsafe.Pointer(Cmode))
+
+	// lvm_vg_open returns a vg_t, which is a pointer to a volume_group struct. Since method
+	// receivers cannot receive pointer types, we need to cast it to a *C.struct_volume_group
+	// before we return it.
+	vg := C.lvm_vg_open((*C.struct_lvm)(lvm), Cname, Cmode, 0)
+
+	return (*CVolumeGroup)(unsafe.Pointer(vg))
+}
+
+func (vg *CVolumeGroup) close() {
+	C.lvm_vg_close((*C.struct_volume_group)(vg))
+}
+
+func (vg *CVolumeGroup) getSize() uint64 {
+	return uint64(C.lvm_vg_get_size((*C.struct_volume_group)(vg)))
+}
+
+func (vg *CVolumeGroup) getFreeSize() uint64 {
+	return uint64(C.lvm_vg_get_free_size((*C.struct_volume_group)(vg)))
+}
+
+func (vg *CVolumeGroup) getExtentSize() uint64 {
+	return uint64(C.lvm_vg_get_extent_size((*C.struct_volume_group)(vg)))
+}
+
+func (vg *CVolumeGroup) getExtentCount() uint64 {
+	return uint64(C.lvm_vg_get_extent_count((*C.struct_volume_group)(vg)))
+}
+
+func (vg *CVolumeGroup) getFreeExtentCount() uint64 {
+	return uint64(C.lvm_vg_get_free_extent_count((*C.struct_volume_group)(vg)))
+}
 
 func main() {
 	dm, err := devmapper.NewDevMapper()
@@ -35,41 +119,21 @@ func main() {
 		fmt.Printf("%#v %#v\n", device, targets)
 	}
 
-	// Experimental interaction with lvmetad Unix socket
-	conn, err := net.DialUnix("unix", nil, &net.UnixAddr{"/run/lvm/lvmetad.socket", "unix"})
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+	// Get LVM2 handle
+	lvm := initLVM()
+	defer lvm.close()
+
+	fmt.Printf("\nLVM2 handle: %#v\n", lvm)
+	fmt.Printf("VG UUIDs: %#v\n", lvm.getVgUuids())
+	fmt.Printf("VG Names: %#v\n", lvm.getVgNames())
+
+	fmt.Println("VG Name       Size       Free   PE size  PE count  PE free count    Usage")
+
+	for _, name := range lvm.getVgNames() {
+		vg := lvm.openVg(name)
+		fmt.Printf("%-8s %9d  %9d %9d %9d      %9d  %6.2f%%\n",
+			name, vg.getSize(), vg.getFreeSize(), vg.getExtentSize(), vg.getExtentCount(),
+			vg.getFreeExtentCount(), 100*(1-(float64(vg.getFreeSize())/float64(vg.getSize()))))
+		vg.close()
 	}
-
-	defer conn.Close()
-
-	var buf [2048]byte
-	var n int
-
-	fmt.Printf("\nlvmetad socket: %#v\n", conn)
-
-	conn.Write([]byte("request = \"hello\"\n"))
-	conn.Write([]byte("\n##\n"))
-
-	n, _ = conn.Read(buf[:])
-	fmt.Printf("%s\n", buf[:n])
-
-	conn.Write([]byte("request=\"get_global_info\"\ntoken = \"skip\"\n"))
-	conn.Write([]byte("\n##\n"))
-
-	n, _ = conn.Read(buf[:])
-	fmt.Printf("%s\n", buf[:n])
-
-	conn.Write([]byte("request=\"vg_list\"\ntoken =\"filter:3239235440\"\n"))
-	conn.Write([]byte("\n##\n"))
-
-	n, _ = conn.Read(buf[:])
-	fmt.Printf("%s\n", buf[:n])
-
-	conn.Write([]byte("request=\"vg_lookup\"\nuuid =\"VIn7Hm-7z8y-AMFJ-6CdJ-6la7-dPd7-h1I6eO\"\ntoken =\"filter:3239235440\"\n"))
-	conn.Write([]byte("\n##\n"))
-
-	n, _ = conn.Read(buf[:])
-	fmt.Printf("%s\n", buf[:n])
 }
