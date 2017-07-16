@@ -25,6 +25,13 @@ type dmDevice struct {
 	Name string
 }
 
+type dmTarget struct {
+	Start  uint64
+	Length uint64
+	Type   string
+	Params string
+}
+
 func initLVM() *CLvm {
 	// lvm_init returns an lvm_t, which is a pointer to a lvm struct. Since method receivers cannot
 	// receive pointer types, we need to cast it to a *C.struct_lvm before we return it.
@@ -134,6 +141,7 @@ func getDeviceList() (devices []dmDevice, err error) {
 		return
 	}
 
+	// FIXME: dmsetup.c also checks value of info.exists
 	_, err = C.dm_task_get_info(dmt, &info)
 	if err != nil {
 		return
@@ -170,6 +178,53 @@ func getDeviceList() (devices []dmDevice, err error) {
 	return
 }
 
+func getDeviceTable(name string) (err error) {
+	var info C.struct_dm_info
+
+	dmt, err := C.dm_task_create(C.DM_DEVICE_TABLE)
+	if err != nil {
+		return
+	}
+
+	defer C.dm_task_destroy(dmt)
+
+	Cname := C.CString(name)
+	defer C.free(unsafe.Pointer(Cname))
+
+	_, err = C.dm_task_set_name(dmt, Cname)
+	if err != nil {
+		return
+	}
+
+	_, err = C.dm_task_run(dmt)
+	if err != nil {
+		return
+	}
+
+	// FIXME: dmsetup.c also checks value of info.exists
+	_, err = C.dm_task_get_info(dmt, &info)
+	if err != nil {
+		return
+	}
+
+	fmt.Printf("info: %#v\n", info)
+
+	var (
+		Cstart, Clength      C.uint64_t
+		CtargetType, Cparams *C.char
+		next                 uintptr
+	)
+
+	// TODO: loop over possible multiple targets
+	nextp := C.dm_get_next_target(dmt, unsafe.Pointer(next), &Cstart, &Clength, &CtargetType, &Cparams)
+	fmt.Printf("nextp: %#v\n", nextp)
+
+	tgt := dmTarget{uint64(Cstart), uint64(Clength), C.GoString(CtargetType), C.GoString(Cparams)}
+	fmt.Printf("target: %#v\n", tgt)
+
+	return
+}
+
 func main() {
 	dm, err := devmapper.NewDevMapper()
 	if err != nil {
@@ -202,5 +257,9 @@ func main() {
 	// devmapper demo
 	if devices, err := getDeviceList(); err == nil {
 		fmt.Printf("%#v\n", devices)
+	}
+
+	if err := getDeviceTable("cryptswap1"); err != nil {
+		fmt.Println(err)
 	}
 }
