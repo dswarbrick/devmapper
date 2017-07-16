@@ -20,6 +20,11 @@ type (
 	CVolumeGroup C.struct_volume_group
 )
 
+type dmDevice struct {
+	Dev  uint64
+	Name string
+}
+
 func initLVM() *CLvm {
 	// lvm_init returns an lvm_t, which is a pointer to a lvm struct. Since method receivers cannot
 	// receive pointer types, we need to cast it to a *C.struct_lvm before we return it.
@@ -113,6 +118,58 @@ func lvmDemo() {
 	}
 }
 
+// getDeviceList returns a list of devmapper devices, including device number and name
+func getDeviceList() (devices []dmDevice, err error) {
+	var info C.struct_dm_info
+
+	dmt, err := C.dm_task_create(C.DM_DEVICE_LIST)
+	if err != nil {
+		return
+	}
+
+	defer C.dm_task_destroy(dmt)
+
+	_, err = C.dm_task_run(dmt)
+	if err != nil {
+		return
+	}
+
+	_, err = C.dm_task_get_info(dmt, &info)
+	if err != nil {
+		return
+	}
+
+	dm_names, err := C.dm_task_get_names(dmt)
+	if err != nil {
+		return
+	}
+
+	if dm_names.dev != 0 {
+		/*
+			dm_names is a "variable length" struct which is tricky to process due to Go's disdain
+			for pointer arithmetic.
+
+			struct dm_names {
+				uint64_t dev;
+				uint32_t next;	// Offset to next struct from start of this struct
+				char name[0];
+			};
+		*/
+		for dm_dev := dm_names; ; dm_dev = (*C.struct_dm_names)(unsafe.Pointer(uintptr(unsafe.Pointer(dm_dev)) + uintptr(dm_dev.next))) {
+			devices = append(devices, dmDevice{
+				uint64(dm_dev.dev),
+				C.GoString((*C.char)(unsafe.Pointer(&dm_dev.name))),
+			})
+
+			if dm_dev.next == 0 {
+				break
+			}
+		}
+	}
+
+	return
+}
+
 func main() {
 	dm, err := devmapper.NewDevMapper()
 	if err != nil {
@@ -142,44 +199,8 @@ func main() {
 
 	//lvmDemo()
 
-	// Get libdevmapper library version
-	buf := make([]C.char, 64)
-	C.dm_get_library_version(&buf[0], 64)
-	fmt.Printf("libdevmapper version: %s\n", C.GoString(&buf[0]))
-
-	// FIXME: Do more thorough error checking
-	task := C.dm_task_create(C.DM_DEVICE_LIST)
-	fmt.Printf("dm_task: %#v\n", task)
-
-	res := C.dm_task_run(task)
-	fmt.Printf("res: %#v\n", res)
-
-	var info C.struct_dm_info
-	res = C.dm_task_get_info(task, &info)
-	fmt.Printf("res: %#v\n", res)
-	fmt.Printf("info: %#v\n", info)
-
-	// Get devmapper device names
-	names := C.dm_task_get_names(task)
-
-	if names.dev != 0 {
-		/*
-			dm_names is a "variable length" struct which is tricky to process due to Go's disdain
-			for pointer arithmetic.
-
-			struct dm_names {
-				uint64_t dev;
-				uint32_t next;      // Offset to next struct from start of this struct
-				char name[0];
-			};
-		*/
-		for dm_dev := names; ; dm_dev = (*C.struct_dm_names)(unsafe.Pointer(uintptr(unsafe.Pointer(dm_dev)) + uintptr(dm_dev.next))) {
-			dev_name := (*C.char)(unsafe.Pointer(&dm_dev.name))
-			fmt.Printf("dm_dev: %#v (%s)\n", dm_dev, C.GoString(dev_name))
-
-			if dm_dev.next == 0 {
-				break
-			}
-		}
+	// devmapper demo
+	if devices, err := getDeviceList(); err == nil {
+		fmt.Printf("%#v\n", devices)
 	}
 }
