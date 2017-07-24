@@ -6,12 +6,13 @@
  * https://github.com/docker/docker/tree/master/pkg/devicemapper
  */
 
+// +build linux
+
 package devmapper
 
-// #cgo LDFLAGS: -ldevmapper -llvm2app
+// #cgo LDFLAGS: -ldevmapper
 // #include <stdlib.h>
 // #include <libdevmapper.h>
-// #include <lvm2app.h>
 import "C"
 
 import (
