@@ -1,5 +1,5 @@
 /*
- * Pure Go devicemapper library
+ * Devicemapper / LVM bindings for Go
  * Copyright 2017 Daniel Swarbrick
 
  * dm-cache Statistics Parser
