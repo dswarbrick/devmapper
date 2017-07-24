@@ -15,7 +15,6 @@ package devmapper
 import "C"
 
 import (
-	"fmt"
 	"unsafe"
 )
 
@@ -84,8 +83,11 @@ func GetDeviceList() (devices []dmDevice, err error) {
 	return
 }
 
-func GetDeviceTable(name string) (err error) {
-	var info C.struct_dm_info
+func GetDeviceTable(name string) (targets []dmTarget, err error) {
+	var (
+		info C.struct_dm_info
+		next uintptr
+	)
 
 	dmt, err := C.dm_task_create(C.DM_DEVICE_TABLE)
 	if err != nil {
@@ -113,20 +115,25 @@ func GetDeviceTable(name string) (err error) {
 		return
 	}
 
-	fmt.Printf("info: %#v\n", info)
+	for x := 0; x < int(info.target_count); x++ {
+		var (
+			Cstart, Clength      C.uint64_t
+			CtargetType, Cparams *C.char
+		)
 
-	var (
-		Cstart, Clength      C.uint64_t
-		CtargetType, Cparams *C.char
-		next                 uintptr
-	)
+		nextp := C.dm_get_next_target(dmt, unsafe.Pointer(next), &Cstart, &Clength, &CtargetType, &Cparams)
+		targets = append(targets, dmTarget{
+			uint64(Cstart),
+			uint64(Clength),
+			C.GoString(CtargetType),
+			C.GoString(Cparams),
+		})
+
+		if nextp == nil {
+			break
+		}
+	}
 
 	// TODO: loop over possible multiple targets
-	nextp := C.dm_get_next_target(dmt, unsafe.Pointer(next), &Cstart, &Clength, &CtargetType, &Cparams)
-	fmt.Printf("nextp: %#v\n", nextp)
-
-	tgt := dmTarget{uint64(Cstart), uint64(Clength), C.GoString(CtargetType), C.GoString(Cparams)}
-	fmt.Printf("target: %#v\n", tgt)
-
 	return
 }

@@ -132,7 +132,7 @@ func main() {
 		fmt.Printf("%#v\n", devices)
 	}
 
-	if err := devmapper.GetDeviceTable("cryptswap1"); err != nil {
-		fmt.Println(err)
+	if targets, err := devmapper.GetDeviceTable("cryptswap1"); err == nil {
+		fmt.Printf("%#v\n", targets)
 	}
 }
