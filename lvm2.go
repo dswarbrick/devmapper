@@ -22,12 +22,22 @@ import (
 	"unsafe"
 )
 
+const (
+	LVM_VG_READ_ONLY  = "r"
+	LVM_VG_READ_WRITE = "w"
+)
+
 // Alias the LVM2 C structs so that we can attach our own methods to them
 type (
 	CLvm           C.struct_lvm
 	CVolumeGroup   C.struct_volume_group
 	CLogicalVolume C.struct_logical_volume
 )
+
+type VolumeGroup struct {
+	lvm_t *CLvm
+	vg    C.vg_t
+}
 
 type lvmError struct {
 	errno  int
@@ -73,11 +83,15 @@ func (lvm *CLvm) CreatePV(device string, size uint64) error {
 	return nil
 }
 
-func (lvm *CLvm) RemovePV(name string) {
+func (lvm *CLvm) RemovePV(name string) error {
 	Cname := C.CString(name)
 	defer C.free(unsafe.Pointer(Cname))
 
-	C.lvm_pv_remove((*C.struct_lvm)(lvm), Cname)
+	if C.lvm_pv_remove((*C.struct_lvm)(lvm), Cname) != 0 {
+		return lvm.lastError()
+	}
+
+	return nil
 }
 
 // GetVgNames returns a slice of strings containing volume group names
@@ -102,72 +116,94 @@ func (lvm *CLvm) GetVgUuids() (uuids []string) {
 	return
 }
 
-func (lvm *CLvm) CreateVG(name string) *CVolumeGroup {
+func (lvm *CLvm) CreateVG(name string) (*VolumeGroup, error) {
 	Cname := C.CString(name)
 	defer C.free(unsafe.Pointer(Cname))
 
-	// lvm_vg_create returns a vg_t, which is a pointer to a volume_group struct. Since method
-	// receivers cannot receive pointer types, we need to cast it to a *C.struct_volume_group
-	// before we return it.
 	vg := C.lvm_vg_create((*C.struct_lvm)(lvm), Cname)
+	if vg == nil {
+		return nil, lvm.lastError()
+	}
 
-	return (*CVolumeGroup)(unsafe.Pointer(vg))
+	return &VolumeGroup{lvm, vg}, nil
 }
 
-func (lvm *CLvm) OpenVg(name string) *CVolumeGroup {
+func (lvm *CLvm) OpenVg(name, mode string) (*VolumeGroup, error) {
 	Cname := C.CString(name)
-	Cmode := C.CString("r")
+	Cmode := C.CString(mode)
 
 	defer C.free(unsafe.Pointer(Cname))
 	defer C.free(unsafe.Pointer(Cmode))
 
-	// lvm_vg_open returns a vg_t, which is a pointer to a volume_group struct. Since method
-	// receivers cannot receive pointer types, we need to cast it to a *C.struct_volume_group
-	// before we return it.
 	vg := C.lvm_vg_open((*C.struct_lvm)(lvm), Cname, Cmode, 0)
+	if vg == nil {
+		return nil, lvm.lastError()
+	}
 
-	return (*CVolumeGroup)(unsafe.Pointer(vg))
+	return &VolumeGroup{lvm, vg}, nil
 }
 
-func (vg *CVolumeGroup) Close() {
-	C.lvm_vg_close((*C.struct_volume_group)(vg))
+func (vg *VolumeGroup) Close() error {
+	if C.lvm_vg_close(vg.vg) != 0 {
+		return vg.lvm_t.lastError()
+	}
+
+	return nil
 }
 
-func (vg *CVolumeGroup) Extend(device string) {
+func (vg *VolumeGroup) Extend(device string) error {
 	Cdevice := C.CString(device)
 	defer C.free(unsafe.Pointer(Cdevice))
 
-	C.lvm_vg_extend((*C.struct_volume_group)(vg), Cdevice)
+	if C.lvm_vg_extend(vg.vg, Cdevice) != 0 {
+		return vg.lvm_t.lastError()
+	}
+
+	return nil
 }
 
-func (vg *CVolumeGroup) Remove() {
-	C.lvm_vg_remove((*C.struct_volume_group)(vg))
+func (vg *VolumeGroup) Remove() error {
+	if C.lvm_vg_remove(vg.vg) != 0 {
+		return vg.lvm_t.lastError()
+	}
+
+	return nil
 }
 
-func (vg *CVolumeGroup) Write() {
-	C.lvm_vg_write((*C.struct_volume_group)(vg))
+func (vg *VolumeGroup) Write() error {
+	if C.lvm_vg_write(vg.vg) != 0 {
+		return vg.lvm_t.lastError()
+	}
+
+	return nil
 }
 
-func (vg *CVolumeGroup) GetSize() uint64 {
-	return uint64(C.lvm_vg_get_size((*C.struct_volume_group)(vg)))
+// TEST ME
+func (vg *VolumeGroup) GetSize() uint64 {
+	return uint64(C.lvm_vg_get_size(vg.vg))
 }
 
-func (vg *CVolumeGroup) GetFreeSize() uint64 {
-	return uint64(C.lvm_vg_get_free_size((*C.struct_volume_group)(vg)))
+// TEST ME
+func (vg *VolumeGroup) GetFreeSize() uint64 {
+	return uint64(C.lvm_vg_get_free_size(vg.vg))
 }
 
-func (vg *CVolumeGroup) GetExtentSize() uint64 {
-	return uint64(C.lvm_vg_get_extent_size((*C.struct_volume_group)(vg)))
+// TEST ME
+func (vg *VolumeGroup) GetExtentSize() uint64 {
+	return uint64(C.lvm_vg_get_extent_size(vg.vg))
 }
 
-func (vg *CVolumeGroup) GetExtentCount() uint64 {
-	return uint64(C.lvm_vg_get_extent_count((*C.struct_volume_group)(vg)))
+// TEST ME
+func (vg *VolumeGroup) GetExtentCount() uint64 {
+	return uint64(C.lvm_vg_get_extent_count(vg.vg))
 }
 
-func (vg *CVolumeGroup) GetFreeExtentCount() uint64 {
-	return uint64(C.lvm_vg_get_free_extent_count((*C.struct_volume_group)(vg)))
+// TEST ME
+func (vg *VolumeGroup) GetFreeExtentCount() uint64 {
+	return uint64(C.lvm_vg_get_free_extent_count(vg.vg))
 }
 
+// FIXME
 func (vg *CVolumeGroup) CreateLvLinear(name string, size uint64) *CLogicalVolume {
 	Cname := C.CString(name)
 	defer C.free(unsafe.Pointer(Cname))

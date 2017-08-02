@@ -43,6 +43,8 @@ func randString(length int) string {
 
 // WIP: Create loop image, attach it to first available loop device
 // TODO: Break this up into subtests and fail fast if a preceding step fails
+// TODO: Reassess `defer` statements - certain setup actions must be torn down in a specific order,
+//       and may not actually be possible if a preceding step failed.
 func TestLVM2(t *testing.T) {
 	tmpfile, err := ioutil.TempFile("", "lvm2_")
 	if err != nil {
@@ -87,32 +89,58 @@ func TestLVM2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	vg := lvm.CreateVG(randString(16))
-	vg.Extend(loopDevName)
-	vg.Write()
+	// Create an empty VG object
+	vg, err := lvm.CreateVG(randString(16))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%#v\n", vg)
 
-	t.Logf("VG names: %#v\n", lvm.GetVgNames())
+	// Add PV to VG; requires calling vg.Write() to commit changes.
+	if err := vg.Extend(loopDevName); err != nil {
+		t.Fatal(err)
+	}
 
-	lv := vg.CreateLvLinear("testvol1", 10*(1<<20))
-	t.Logf("LV UUID: %s\n", lv.GetUuid())
-	t.Logf("LV name: %s  size: %d  active: %v\n", lv.GetName(), lv.GetSize(), lv.IsActive())
+	// Commit changes to VG
+	if err := vg.Write(); err != nil {
+		t.Fatal(err)
+	}
 
-	t.Logf("LV attrs: %s\n", lv.GetAttrs())
-	t.Logf("Deactivating LV...")
-	lv.Deactivate()
-	t.Logf("LV attrs: %s\n", lv.GetAttrs())
-	t.Logf("Activating LV...")
-	lv.Activate()
-	t.Logf("LV attrs: %s\n", lv.GetAttrs())
+	vgNames := lvm.GetVgNames()
+	t.Logf("VG names: %#v\n", vgNames)
 
-	lv.Remove()
+	/*
+		lv := vg.CreateLvLinear("testvol1", 10*(1<<20))
+		t.Logf("LV UUID: %s\n", lv.GetUuid())
+		t.Logf("LV name: %s  size: %d  active: %v\n", lv.GetName(), lv.GetSize(), lv.IsActive())
 
-	vg.Remove()
-	vg.Write()
+		t.Logf("LV attrs: %s\n", lv.GetAttrs())
+		t.Logf("Deactivating LV...")
+		lv.Deactivate()
+		t.Logf("LV attrs: %s\n", lv.GetAttrs())
+		t.Logf("Activating LV...")
+		lv.Activate()
+		t.Logf("LV attrs: %s\n", lv.GetAttrs())
 
-	vg.Close()
+		lv.Remove()
+	*/
 
-	lvm.RemovePV(loopDevName)
+	// Remove VG object; requires calling vg.Write() to commit changes.
+	if err := vg.Remove(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := vg.Write(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := vg.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := lvm.RemovePV(loopDevName); err != nil {
+		t.Fatal(err)
+	}
 
 	// Disassociate the loop dev_fd from any file descriptor
 	r1, r2, err = syscall.Syscall(syscall.SYS_IOCTL, uintptr(dev_fd), LOOP_CLR_FD, 0)
