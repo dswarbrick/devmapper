@@ -109,21 +109,32 @@ func TestLVM2(t *testing.T) {
 	vgNames := lvm.GetVgNames()
 	t.Logf("VG names: %#v\n", vgNames)
 
-	/*
-		lv := vg.CreateLvLinear("testvol1", 10*(1<<20))
-		t.Logf("LV UUID: %s\n", lv.GetUuid())
-		t.Logf("LV name: %s  size: %d  active: %v\n", lv.GetName(), lv.GetSize(), lv.IsActive())
+	lv, err := vg.CreateLvLinear("testvol1", 10*(1<<20))
+	if err != nil {
+		t.Fatal(err)
+	}
 
-		t.Logf("LV attrs: %s\n", lv.GetAttrs())
-		t.Logf("Deactivating LV...")
-		lv.Deactivate()
-		t.Logf("LV attrs: %s\n", lv.GetAttrs())
-		t.Logf("Activating LV...")
-		lv.Activate()
-		t.Logf("LV attrs: %s\n", lv.GetAttrs())
+	t.Logf("LV UUID: %s\n", lv.GetUuid())
+	t.Logf("LV name: %s  size: %d  active: %v\n", lv.GetName(), lv.GetSize(), lv.IsActive())
+	t.Logf("LV attrs: %s\n", lv.GetAttrs())
+	t.Logf("Deactivating LV...")
 
-		lv.Remove()
-	*/
+	if err := lv.Deactivate(); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf("LV attrs: %s\n", lv.GetAttrs())
+	t.Logf("Activating LV...")
+
+	if err := lv.Activate(); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Logf("LV attrs: %s\n", lv.GetAttrs())
+
+	if err := lv.Remove(); err != nil {
+		t.Fatal(err)
+	}
 
 	// Remove VG object; requires calling vg.Write() to commit changes.
 	if err := vg.Remove(); err != nil {

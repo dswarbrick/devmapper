@@ -27,16 +27,17 @@ const (
 	LVM_VG_READ_WRITE = "w"
 )
 
-// Alias the LVM2 C structs so that we can attach our own methods to them
-type (
-	CLvm           C.struct_lvm
-	CVolumeGroup   C.struct_volume_group
-	CLogicalVolume C.struct_logical_volume
-)
+// Alias the LVM2 C struct so that we can attach our own methods to them
+type CLvm C.struct_lvm
 
 type VolumeGroup struct {
 	lvm_t *CLvm
-	vg    C.vg_t
+	vg    C.vg_t // Pointer to volume_group C struct
+}
+
+type LogicalVolume struct {
+	vg *VolumeGroup // Parent volume group
+	lv C.lv_t       // Pointer to logical_volume C struct
 }
 
 type lvmError struct {
@@ -203,48 +204,59 @@ func (vg *VolumeGroup) GetFreeExtentCount() uint64 {
 	return uint64(C.lvm_vg_get_free_extent_count(vg.vg))
 }
 
-// FIXME
-func (vg *CVolumeGroup) CreateLvLinear(name string, size uint64) *CLogicalVolume {
+func (vg *VolumeGroup) CreateLvLinear(name string, size uint64) (*LogicalVolume, error) {
 	Cname := C.CString(name)
 	defer C.free(unsafe.Pointer(Cname))
 
-	// lvm_vg_create_lv_linear returns an lv_t, which is a pointer to a logical_volume struct.
-	// Since method receivers cannot receive pointer types, we need to cast it to a
-	// *C.struct_logical_volume before we return it.
-	lv := C.lvm_vg_create_lv_linear((*C.struct_volume_group)(vg), Cname, C.uint64_t(size))
+	lv := C.lvm_vg_create_lv_linear(vg.vg, Cname, C.uint64_t(size))
+	if lv == nil {
+		return nil, vg.lvm_t.lastError()
+	}
 
-	return (*CLogicalVolume)(unsafe.Pointer(lv))
+	return &LogicalVolume{vg, lv}, nil
 }
 
-func (lv *CLogicalVolume) Activate() {
-	C.lvm_lv_activate((*C.struct_logical_volume)(lv))
+func (lv *LogicalVolume) Activate() error {
+	if C.lvm_lv_activate(lv.lv) != 0 {
+		return lv.vg.lvm_t.lastError()
+	}
+
+	return nil
 }
 
-func (lv *CLogicalVolume) Deactivate() {
-	C.lvm_lv_deactivate((*C.struct_logical_volume)(lv))
+func (lv *LogicalVolume) Deactivate() error {
+	if C.lvm_lv_deactivate(lv.lv) != 0 {
+		return lv.vg.lvm_t.lastError()
+	}
+
+	return nil
 }
 
-func (lv *CLogicalVolume) GetAttrs() []byte {
+func (lv *LogicalVolume) GetAttrs() []byte {
 	// Return byte slice of logical volume attrs, e.g.: -wi-a-----
-	return []byte(C.GoString(C.lvm_lv_get_attr((*C.struct_logical_volume)(lv))))
+	return []byte(C.GoString(C.lvm_lv_get_attr(lv.lv)))
 }
 
-func (lv *CLogicalVolume) GetName() string {
-	return C.GoString(C.lvm_lv_get_name((*C.struct_logical_volume)(lv)))
+func (lv *LogicalVolume) GetName() string {
+	return C.GoString(C.lvm_lv_get_name(lv.lv))
 }
 
-func (lv *CLogicalVolume) GetSize() uint64 {
-	return uint64(C.lvm_lv_get_size((*C.struct_logical_volume)(lv)))
+func (lv *LogicalVolume) GetSize() uint64 {
+	return uint64(C.lvm_lv_get_size(lv.lv))
 }
 
-func (lv *CLogicalVolume) GetUuid() string {
-	return C.GoString(C.lvm_lv_get_uuid((*C.struct_logical_volume)(lv)))
+func (lv *LogicalVolume) GetUuid() string {
+	return C.GoString(C.lvm_lv_get_uuid(lv.lv))
 }
 
-func (lv *CLogicalVolume) IsActive() bool {
-	return C.lvm_lv_is_active((*C.struct_logical_volume)(lv)) == 1
+func (lv *LogicalVolume) IsActive() bool {
+	return C.lvm_lv_is_active(lv.lv) == 1
 }
 
-func (lv *CLogicalVolume) Remove() {
-	C.lvm_vg_remove_lv((*C.struct_logical_volume)(lv))
+func (lv *LogicalVolume) Remove() error {
+	if C.lvm_vg_remove_lv(lv.lv) != 0 {
+		return lv.vg.lvm_t.lastError()
+	}
+
+	return nil
 }
