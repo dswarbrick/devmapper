@@ -87,6 +87,10 @@ func TestLVM2(t *testing.T) {
 
 	t.Logf("VG names: %#v\n", lvm.GetVgNames())
 
+	lv := vg.CreateLvLinear("testvol1", 10*(1<<20))
+	t.Logf("LV UUID: %s\n", lv.GetUuid())
+	lv.Remove()
+
 	vg.Remove()
 	vg.Write()
 

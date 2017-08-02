@@ -21,8 +21,9 @@ import "unsafe"
 
 // Alias the LVM2 C structs so that we can attach our own methods to them
 type (
-	CLvm         C.struct_lvm
-	CVolumeGroup C.struct_volume_group
+	CLvm           C.struct_lvm
+	CVolumeGroup   C.struct_volume_group
+	CLogicalVolume C.struct_logical_volume
 )
 
 func InitLVM() *CLvm {
@@ -139,4 +140,24 @@ func (vg *CVolumeGroup) GetExtentCount() uint64 {
 
 func (vg *CVolumeGroup) GetFreeExtentCount() uint64 {
 	return uint64(C.lvm_vg_get_free_extent_count((*C.struct_volume_group)(vg)))
+}
+
+func (vg *CVolumeGroup) CreateLvLinear(name string, size uint64) *CLogicalVolume {
+	Cname := C.CString(name)
+	defer C.free(unsafe.Pointer(Cname))
+
+	// lvm_vg_create_lv_linear returns an lv_t, which is a pointer to a logical_volume struct.
+	// Since method receivers cannot receive pointer types, we need to cast it to a
+	// *C.struct_logical_volume before we return it.
+	lv := C.lvm_vg_create_lv_linear((*C.struct_volume_group)(vg), Cname, C.uint64_t(size))
+
+	return (*CLogicalVolume)(unsafe.Pointer(lv))
+}
+
+func (lv *CLogicalVolume) GetUuid() string {
+	return C.GoString(C.lvm_lv_get_uuid((*C.struct_logical_volume)(lv)))
+}
+
+func (lv *CLogicalVolume) Remove() {
+	C.lvm_vg_remove_lv((*C.struct_logical_volume)(lv))
 }
