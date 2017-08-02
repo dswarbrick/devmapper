@@ -17,7 +17,10 @@ package devmapper
 // #include <lvm2app.h>
 import "C"
 
-import "unsafe"
+import (
+	"fmt"
+	"unsafe"
+)
 
 // Alias the LVM2 C structs so that we can attach our own methods to them
 type (
@@ -25,6 +28,15 @@ type (
 	CVolumeGroup   C.struct_volume_group
 	CLogicalVolume C.struct_logical_volume
 )
+
+type lvmError struct {
+	errno  int
+	errmsg string
+}
+
+func (e *lvmError) Error() string {
+	return fmt.Sprintf("LVM error %d: %s", e.errno, e.errmsg)
+}
 
 func InitLVM() *CLvm {
 	// lvm_init returns an lvm_t, which is a pointer to a lvm struct. Since method receivers cannot
@@ -34,17 +46,31 @@ func InitLVM() *CLvm {
 	return (*CLvm)(unsafe.Pointer(lvm))
 }
 
+func (lvm *CLvm) lastError() error {
+	err := &lvmError{
+		errno:  int(C.lvm_errno((*C.struct_lvm)(lvm))),
+		errmsg: C.GoString(C.lvm_errmsg((*C.struct_lvm)(lvm))),
+	}
+
+	return err
+}
+
 func (lvm *CLvm) Close() {
 	C.lvm_quit((*C.struct_lvm)(lvm))
 }
 
-// CreatePV creates a physical volume of the specified size on the device `name`.
-// Size must be a multiple of 512 bytes. Specify a size of 0 bytes to use the entire device.
-func (lvm *CLvm) CreatePV(name string, size uint64) {
-	Cname := C.CString(name)
-	defer C.free(unsafe.Pointer(Cname))
+// CreatePV creates a physical volume on the specified absolute device name (e.g., /dev/sda1), with
+// size `size` bytes. Size should be a multiple of 512 bytes. A size of zero bytes will use the
+// entire device.
+func (lvm *CLvm) CreatePV(device string, size uint64) error {
+	Cdevice := C.CString(device)
+	defer C.free(unsafe.Pointer(Cdevice))
 
-	C.lvm_pv_create((*C.struct_lvm)(lvm), Cname, C.uint64_t(size))
+	if C.lvm_pv_create((*C.struct_lvm)(lvm), Cdevice, C.uint64_t(size)) != 0 {
+		return lvm.lastError()
+	}
+
+	return nil
 }
 
 func (lvm *CLvm) RemovePV(name string) {

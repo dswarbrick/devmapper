@@ -42,11 +42,14 @@ func randString(length int) string {
 }
 
 // WIP: Create loop image, attach it to first available loop device
+// TODO: Break this up into subtests and fail fast if a preceding step fails
 func TestLVM2(t *testing.T) {
 	tmpfile, err := ioutil.TempFile("", "lvm2_")
 	if err != nil {
-		t.Fail()
+		t.Fatal(err)
 	}
+
+	defer os.Remove(tmpfile.Name())
 
 	// Truncating the new file to non-zero size should create a sparse file
 	if syscall.Ftruncate(int(tmpfile.Fd()), LOOP_SIZE) != nil {
@@ -79,7 +82,10 @@ func TestLVM2(t *testing.T) {
 	lvm := InitLVM()
 	defer lvm.Close()
 
-	lvm.CreatePV(loopDevName, 0)
+	// Size of zero will use entire device
+	if err := lvm.CreatePV(loopDevName, 0); err != nil {
+		t.Fatal(err)
+	}
 
 	vg := lvm.CreateVG(randString(16))
 	vg.Extend(loopDevName)
@@ -113,5 +119,4 @@ func TestLVM2(t *testing.T) {
 	t.Logf("LOOP_CLR_FD r1: %#v r2: %#v err: %#v", r1, r2, err)
 
 	syscall.Close(dev_fd)
-	os.Remove(tmpfile.Name())
 }
