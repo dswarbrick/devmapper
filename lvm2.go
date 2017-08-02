@@ -154,8 +154,33 @@ func (vg *CVolumeGroup) CreateLvLinear(name string, size uint64) *CLogicalVolume
 	return (*CLogicalVolume)(unsafe.Pointer(lv))
 }
 
+func (lv *CLogicalVolume) Activate() {
+	C.lvm_lv_activate((*C.struct_logical_volume)(lv))
+}
+
+func (lv *CLogicalVolume) Deactivate() {
+	C.lvm_lv_deactivate((*C.struct_logical_volume)(lv))
+}
+
+func (lv *CLogicalVolume) GetAttrs() []byte {
+	// Return byte slice of logical volume attrs, e.g.: -wi-a-----
+	return []byte(C.GoString(C.lvm_lv_get_attr((*C.struct_logical_volume)(lv))))
+}
+
+func (lv *CLogicalVolume) GetName() string {
+	return C.GoString(C.lvm_lv_get_name((*C.struct_logical_volume)(lv)))
+}
+
+func (lv *CLogicalVolume) GetSize() uint64 {
+	return uint64(C.lvm_lv_get_size((*C.struct_logical_volume)(lv)))
+}
+
 func (lv *CLogicalVolume) GetUuid() string {
 	return C.GoString(C.lvm_lv_get_uuid((*C.struct_logical_volume)(lv)))
+}
+
+func (lv *CLogicalVolume) IsActive() bool {
+	return C.lvm_lv_is_active((*C.struct_logical_volume)(lv)) == 1
 }
 
 func (lv *CLogicalVolume) Remove() {

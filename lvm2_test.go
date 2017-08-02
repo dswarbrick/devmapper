@@ -89,6 +89,16 @@ func TestLVM2(t *testing.T) {
 
 	lv := vg.CreateLvLinear("testvol1", 10*(1<<20))
 	t.Logf("LV UUID: %s\n", lv.GetUuid())
+	t.Logf("LV name: %s  size: %d  active: %v\n", lv.GetName(), lv.GetSize(), lv.IsActive())
+
+	t.Logf("LV attrs: %s\n", lv.GetAttrs())
+	t.Logf("Deactivating LV...")
+	lv.Deactivate()
+	t.Logf("LV attrs: %s\n", lv.GetAttrs())
+	t.Logf("Activating LV...")
+	lv.Activate()
+	t.Logf("LV attrs: %s\n", lv.GetAttrs())
+
 	lv.Remove()
 
 	vg.Remove()
