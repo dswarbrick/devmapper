@@ -12,9 +12,11 @@ package devmapper
 import (
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"syscall"
 	"testing"
+	"time"
 )
 
 const (
@@ -25,6 +27,19 @@ const (
 
 	LOOP_SIZE = 100 * (1 << 20)
 )
+
+func randString(length int) string {
+	rand.Seed(time.Now().UnixNano())
+
+	letters := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+	b := make([]rune, length)
+
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))]
+	}
+
+	return string(b)
+}
 
 // WIP: Create loop image, attach it to first available loop device
 func TestLVM2(t *testing.T) {
@@ -48,9 +63,11 @@ func TestLVM2(t *testing.T) {
 	t.Logf("Available loop dev: %d\n", loop_dev)
 	syscall.Close(fd)
 
-	dev_fd, err := syscall.Open(fmt.Sprintf("/dev/loop%d", loop_dev), syscall.O_RDWR, 0600)
+	loopDevName := fmt.Sprintf("/dev/loop%d", loop_dev)
+
+	dev_fd, err := syscall.Open(loopDevName, syscall.O_RDWR, 0600)
 	if err != nil {
-		t.Fatal("LOOP_SET_FD failed: cannot open loop device:", err)
+		t.Fatal("LOOP_SET_FD failed: cannot open %s - %s", loopDevName, err)
 	}
 
 	// Associate the tmpfile with the available loop device
@@ -58,6 +75,24 @@ func TestLVM2(t *testing.T) {
 	t.Logf("LOOP_SET_FD r1: %#v r2: %#v err: %#v", r1, r2, err)
 
 	tmpfile.Close()
+
+	lvm := InitLVM()
+	defer lvm.Close()
+
+	lvm.CreatePV(loopDevName, 0)
+
+	vg := lvm.CreateVG(randString(16))
+	vg.Extend(loopDevName)
+	vg.Write()
+
+	t.Logf("VG names: %#v\n", lvm.GetVgNames())
+
+	vg.Remove()
+	vg.Write()
+
+	vg.Close()
+
+	lvm.RemovePV(loopDevName)
 
 	// Disassociate the loop dev_fd from any file descriptor
 	r1, r2, err = syscall.Syscall(syscall.SYS_IOCTL, uintptr(dev_fd), LOOP_CLR_FD, 0)

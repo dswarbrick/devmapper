@@ -4,6 +4,8 @@
  *
  * This package contains some alternatives to functions in
  * https://github.com/docker/docker/tree/master/pkg/devicemapper
+ *
+ * TODO: Add error checking and return to all methods
  */
 
 // +build linux
@@ -35,7 +37,23 @@ func (lvm *CLvm) Close() {
 	C.lvm_quit((*C.struct_lvm)(lvm))
 }
 
-// getVgNames returns a slice of strings containing volume group names
+// CreatePV creates a physical volume of the specified size on the device `name`.
+// Size must be a multiple of 512 bytes. Specify a size of 0 bytes to use the entire device.
+func (lvm *CLvm) CreatePV(name string, size uint64) {
+	Cname := C.CString(name)
+	defer C.free(unsafe.Pointer(Cname))
+
+	C.lvm_pv_create((*C.struct_lvm)(lvm), Cname, C.uint64_t(size))
+}
+
+func (lvm *CLvm) RemovePV(name string) {
+	Cname := C.CString(name)
+	defer C.free(unsafe.Pointer(Cname))
+
+	C.lvm_pv_remove((*C.struct_lvm)(lvm), Cname)
+}
+
+// GetVgNames returns a slice of strings containing volume group names
 func (lvm *CLvm) GetVgNames() (names []string) {
 	vg_names := C.lvm_list_vg_names((*C.struct_lvm)(lvm))
 
@@ -46,7 +64,7 @@ func (lvm *CLvm) GetVgNames() (names []string) {
 	return
 }
 
-// getVgNames returns a slice of strings containing volume group UUIDs
+// GetVgNames returns a slice of strings containing volume group UUIDs
 func (lvm *CLvm) GetVgUuids() (uuids []string) {
 	vg_uuids := C.lvm_list_vg_uuids((*C.struct_lvm)(lvm))
 
@@ -55,6 +73,18 @@ func (lvm *CLvm) GetVgUuids() (uuids []string) {
 	}
 
 	return
+}
+
+func (lvm *CLvm) CreateVG(name string) *CVolumeGroup {
+	Cname := C.CString(name)
+	defer C.free(unsafe.Pointer(Cname))
+
+	// lvm_vg_create returns a vg_t, which is a pointer to a volume_group struct. Since method
+	// receivers cannot receive pointer types, we need to cast it to a *C.struct_volume_group
+	// before we return it.
+	vg := C.lvm_vg_create((*C.struct_lvm)(lvm), Cname)
+
+	return (*CVolumeGroup)(unsafe.Pointer(vg))
 }
 
 func (lvm *CLvm) OpenVg(name string) *CVolumeGroup {
@@ -74,6 +104,21 @@ func (lvm *CLvm) OpenVg(name string) *CVolumeGroup {
 
 func (vg *CVolumeGroup) Close() {
 	C.lvm_vg_close((*C.struct_volume_group)(vg))
+}
+
+func (vg *CVolumeGroup) Extend(device string) {
+	Cdevice := C.CString(device)
+	defer C.free(unsafe.Pointer(Cdevice))
+
+	C.lvm_vg_extend((*C.struct_volume_group)(vg), Cdevice)
+}
+
+func (vg *CVolumeGroup) Remove() {
+	C.lvm_vg_remove((*C.struct_volume_group)(vg))
+}
+
+func (vg *CVolumeGroup) Write() {
+	C.lvm_vg_write((*C.struct_volume_group)(vg))
 }
 
 func (vg *CVolumeGroup) GetSize() uint64 {
