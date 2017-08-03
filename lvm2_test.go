@@ -94,7 +94,6 @@ func TestLVM2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("%#v\n", vg)
 
 	// Add PV to VG; requires calling vg.Write() to commit changes.
 	if err := vg.Extend(loopDevName); err != nil {
@@ -106,10 +105,15 @@ func TestLVM2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	vgNames := lvm.GetVgNames()
-	t.Logf("VG names: %#v\n", vgNames)
+	_, err = vg.PvFromName(loopDevName)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	lv, err := vg.CreateLvLinear("testvol1", 10*(1<<20))
+	vgNames := lvm.GetVgNames()
+	t.Logf("VG names: %v\n", vgNames)
+
+	lv, err := vg.CreateLvLinear("testvol1", 50 * (1 << 20))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,6 +139,8 @@ func TestLVM2(t *testing.T) {
 	if err := lv.Remove(); err != nil {
 		t.Fatal(err)
 	}
+
+	t.Logf("VG sequence no.: %d\n", vg.GetSequenceNum())
 
 	// Remove VG object; requires calling vg.Write() to commit changes.
 	if err := vg.Remove(); err != nil {

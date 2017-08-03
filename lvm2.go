@@ -31,6 +31,10 @@ type LvmHandle struct {
 	lvm C.lvm_t // Pointer to lvm C struct
 }
 
+type PhysicalVolume struct {
+	pv C.pv_t // Pointer to physical_volume C struct
+}
+
 type VolumeGroup struct {
 	lvm *LvmHandle // Global LVM handle
 	vg  C.vg_t     // Pointer to volume_group C struct
@@ -145,12 +149,49 @@ func (lvm *LvmHandle) OpenVg(name, mode string) (*VolumeGroup, error) {
 	return &VolumeGroup{lvm, vg}, nil
 }
 
+func (pv *PhysicalVolume) GetDevSize() uint64 {
+	return uint64(C.lvm_pv_get_dev_size(pv.pv))
+}
+
+func (pv *PhysicalVolume) GetFree() uint64 {
+	return uint64(C.lvm_pv_get_free(pv.pv))
+}
+
+func (pv *PhysicalVolume) GetMdaCount() uint64 {
+	return uint64(C.lvm_pv_get_mda_count(pv.pv))
+}
+
+func (pv *PhysicalVolume) GetName() string {
+	return C.GoString(C.lvm_pv_get_name(pv.pv))
+}
+
+func (pv *PhysicalVolume) GetSize() uint64 {
+	return uint64(C.lvm_pv_get_size(pv.pv))
+}
+
+func (pv *PhysicalVolume) GetUuid() string {
+	return C.GoString(C.lvm_pv_get_uuid(pv.pv))
+}
+
 func (vg *VolumeGroup) Close() error {
 	if C.lvm_vg_close(vg.vg) != 0 {
 		return vg.lvm.lastError()
 	}
 
 	return nil
+}
+
+// Size must be at least one sector (512 bytes), and will be rounded up to the nearest extent
+func (vg *VolumeGroup) CreateLvLinear(name string, size uint64) (*LogicalVolume, error) {
+	Cname := C.CString(name)
+	defer C.free(unsafe.Pointer(Cname))
+
+	lv := C.lvm_vg_create_lv_linear(vg.vg, Cname, C.uint64_t(size))
+	if lv == nil {
+		return nil, vg.lvm.lastError()
+	}
+
+	return &LogicalVolume{vg, lv}, nil
 }
 
 func (vg *VolumeGroup) Extend(device string) error {
@@ -162,6 +203,76 @@ func (vg *VolumeGroup) Extend(device string) error {
 	}
 
 	return nil
+}
+
+// TEST ME
+func (vg *VolumeGroup) GetExtentCount() uint64 {
+	return uint64(C.lvm_vg_get_extent_count(vg.vg))
+}
+
+// TEST ME
+func (vg *VolumeGroup) GetExtentSize() uint64 {
+	return uint64(C.lvm_vg_get_extent_size(vg.vg))
+}
+
+// TEST ME
+func (vg *VolumeGroup) GetFreeExtentCount() uint64 {
+	return uint64(C.lvm_vg_get_free_extent_count(vg.vg))
+}
+
+// TEST ME
+func (vg *VolumeGroup) GetFreeSize() uint64 {
+	return uint64(C.lvm_vg_get_free_size(vg.vg))
+}
+
+func (vg *VolumeGroup) GetMaxLv() uint64 {
+	return uint64(C.lvm_vg_get_max_lv(vg.vg))
+}
+
+func (vg *VolumeGroup) GetName() string {
+	return C.GoString(C.lvm_vg_get_name(vg.vg))
+}
+
+func (vg *VolumeGroup) GetPvCount() uint64 {
+	return uint64(C.lvm_vg_get_pv_count(vg.vg))
+}
+
+// TEST ME
+func (vg *VolumeGroup) GetSequenceNum() uint64 {
+	return uint64(C.lvm_vg_get_seqno(vg.vg))
+}
+
+// TEST ME
+func (vg *VolumeGroup) GetSize() uint64 {
+	return uint64(C.lvm_vg_get_size(vg.vg))
+}
+
+func (vg *VolumeGroup) GetUuid() string {
+	return C.GoString(C.lvm_vg_get_uuid(vg.vg))
+}
+
+func (vg *VolumeGroup) PvFromName(device string) (*PhysicalVolume, error) {
+	Cdevice := C.CString(device)
+	defer C.free(unsafe.Pointer(Cdevice))
+
+	pv := C.lvm_pv_from_name(vg.vg, Cdevice)
+	if pv == nil {
+		return nil, vg.lvm.lastError()
+	}
+
+	return &PhysicalVolume{pv}, nil
+}
+
+func (vg *VolumeGroup) PvFromUuid(uuid string) (*PhysicalVolume, error) {
+	Cuuid := C.CString(uuid)
+	defer C.free(unsafe.Pointer(Cuuid))
+
+	pv := C.lvm_pv_from_uuid(vg.vg, Cuuid)
+	if pv == nil {
+		return nil, vg.lvm.lastError()
+	}
+
+	return &PhysicalVolume{pv}, nil
 }
 
 func (vg *VolumeGroup) Remove() error {
@@ -178,43 +289,6 @@ func (vg *VolumeGroup) Write() error {
 	}
 
 	return nil
-}
-
-// TEST ME
-func (vg *VolumeGroup) GetSize() uint64 {
-	return uint64(C.lvm_vg_get_size(vg.vg))
-}
-
-// TEST ME
-func (vg *VolumeGroup) GetFreeSize() uint64 {
-	return uint64(C.lvm_vg_get_free_size(vg.vg))
-}
-
-// TEST ME
-func (vg *VolumeGroup) GetExtentSize() uint64 {
-	return uint64(C.lvm_vg_get_extent_size(vg.vg))
-}
-
-// TEST ME
-func (vg *VolumeGroup) GetExtentCount() uint64 {
-	return uint64(C.lvm_vg_get_extent_count(vg.vg))
-}
-
-// TEST ME
-func (vg *VolumeGroup) GetFreeExtentCount() uint64 {
-	return uint64(C.lvm_vg_get_free_extent_count(vg.vg))
-}
-
-func (vg *VolumeGroup) CreateLvLinear(name string, size uint64) (*LogicalVolume, error) {
-	Cname := C.CString(name)
-	defer C.free(unsafe.Pointer(Cname))
-
-	lv := C.lvm_vg_create_lv_linear(vg.vg, Cname, C.uint64_t(size))
-	if lv == nil {
-		return nil, vg.lvm.lastError()
-	}
-
-	return &LogicalVolume{vg, lv}, nil
 }
 
 func (lv *LogicalVolume) Activate() error {
@@ -242,6 +316,7 @@ func (lv *LogicalVolume) GetName() string {
 	return C.GoString(C.lvm_lv_get_name(lv.lv))
 }
 
+// Size is in bytes, not extents
 func (lv *LogicalVolume) GetSize() uint64 {
 	return uint64(C.lvm_lv_get_size(lv.lv))
 }
