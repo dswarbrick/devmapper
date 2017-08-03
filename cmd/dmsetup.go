@@ -18,7 +18,12 @@ func lvmDemo() {
 	fmt.Println("VG Name       Size       Free   PE size  PE count  PE free count    Usage")
 
 	for _, name := range lvm.GetVgNames() {
-		vg := lvm.OpenVg(name)
+		vg, err := lvm.OpenVg(name, devmapper.LVM_VG_READ_ONLY)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+
 		fmt.Printf("%-8s %9d  %9d %9d %9d      %9d  %6.2f%%\n",
 			name, vg.GetSize(), vg.GetFreeSize(), vg.GetExtentSize(), vg.GetExtentCount(),
 			vg.GetFreeExtentCount(), 100*(1-(float64(vg.GetFreeSize())/float64(vg.GetSize()))))
