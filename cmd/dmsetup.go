@@ -10,17 +10,17 @@ import (
 
 func lvmDemo() {
 	// Get LVM2 handle
-	lvm := devmapper.InitLVM()
+	lvm, _ := devmapper.InitLVM()
 	defer lvm.Close()
 
 	fmt.Printf("LVM2 handle: %#v\n", lvm)
-	fmt.Printf("VG UUIDs: %#v\n", lvm.GetVgUuids())
-	fmt.Printf("VG Names: %#v\n", lvm.GetVgNames())
+	fmt.Printf("VG UUIDs: %v\n", lvm.GetVGUUIDs())
+	fmt.Printf("VG Names: %v\n", lvm.GetVGNames())
 
 	fmt.Println("VG Name       Size       Free   PE size  PE count  PE free count    Usage")
 
-	for _, name := range lvm.GetVgNames() {
-		vg, err := lvm.OpenVg(name, devmapper.LVM_VG_READ_ONLY)
+	for _, name := range lvm.GetVGNames() {
+		vg, err := lvm.OpenVG(name, devmapper.LVM_VG_READ_ONLY)
 		if err != nil {
 			fmt.Println(err)
 			continue

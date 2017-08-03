@@ -20,7 +20,8 @@ const (
 	LVM_VG_READ_WRITE = "w"
 )
 
-type LvmHandle struct {
+// An LVMHandle is the base handle for interacting with liblvm2.
+type LVMHandle struct {
 	lvm C.lvm_t // Pointer to lvm C struct
 }
 
@@ -32,7 +33,7 @@ type PhysicalVolume struct {
 // A VolumeGroup represents an LVM volume group object, can contain zero or more logical volumes,
 // and is comprised of one or more physical volumes.
 type VolumeGroup struct {
-	lvm *LvmHandle // Global LVM handle
+	lvm *LVMHandle // Global LVM handle
 	vg  C.vg_t     // Pointer to volume_group C struct
 }
 
@@ -52,15 +53,22 @@ func (e *LVMError) Error() string {
 	return fmt.Sprintf("LVM error %d: %s", e.errno, e.errmsg)
 }
 
-func InitLVM() *LvmHandle {
-	// lvm_init returns an lvm_t, which is a pointer to a lvm struct. Since method receivers cannot
-	// receive pointer types, we need to cast it to a *C.struct_lvm before we return it.
+// InitLVM returns an LVMHandle which can subsequently be used to open and create objects such as
+// phsical volumes, volume groups, and logical volumes. Once all LVM operations have been
+// completed, call Close() to release the handle and any associated resources.
+func InitLVM() (*LVMHandle, error) {
 	lvm := C.lvm_init(nil)
 
-	return &LvmHandle{lvm}
+	// FIXME: How can we call lvm_errmsg(lvm_t libh) if lvm is a null pointer?
+	if lvm == nil {
+		return nil, fmt.Errorf("Unable to obtain LVM handle.")
+	}
+
+	return &LVMHandle{lvm}, nil
 }
 
-func (lvm *LvmHandle) lastError() error {
+// lastError returns the most recent liblvm2 error as an LVMError object.
+func (lvm *LVMHandle) lastError() error {
 	err := &LVMError{
 		errno:  int(C.lvm_errno(lvm.lvm)),
 		errmsg: C.GoString(C.lvm_errmsg(lvm.lvm)),
@@ -69,14 +77,17 @@ func (lvm *LvmHandle) lastError() error {
 	return err
 }
 
-func (lvm *LvmHandle) Close() {
+// Close destroys an LVM handle that was created by InitLVM(). This method should be called after
+// all volume groups have been closed, and the LVM handle should not be used again after it has
+// been closed.
+func (lvm *LVMHandle) Close() {
 	C.lvm_quit(lvm.lvm)
 }
 
 // CreatePV creates a physical volume on the specified absolute device name (e.g., /dev/sda1), with
 // size `size` bytes. Size should be a multiple of 512 bytes. A size of zero bytes will use the
 // entire device.
-func (lvm *LvmHandle) CreatePV(device string, size uint64) error {
+func (lvm *LVMHandle) CreatePV(device string, size uint64) error {
 	Cdevice := C.CString(device)
 	defer C.free(unsafe.Pointer(Cdevice))
 
@@ -87,40 +98,10 @@ func (lvm *LvmHandle) CreatePV(device string, size uint64) error {
 	return nil
 }
 
-func (lvm *LvmHandle) RemovePV(name string) error {
-	Cname := C.CString(name)
-	defer C.free(unsafe.Pointer(Cname))
-
-	if C.lvm_pv_remove(lvm.lvm, Cname) != 0 {
-		return lvm.lastError()
-	}
-
-	return nil
-}
-
-// GetVgNames returns a slice of strings containing volume group names
-func (lvm *LvmHandle) GetVgNames() (names []string) {
-	vg_names := C.lvm_list_vg_names(lvm.lvm)
-
-	for item := vg_names.n; item != vg_names; item = item.n {
-		names = append(names, C.GoString((*C.lvm_str_list_t)(unsafe.Pointer(item)).str))
-	}
-
-	return
-}
-
-// GetVgNames returns a slice of strings containing volume group UUIDs
-func (lvm *LvmHandle) GetVgUuids() (uuids []string) {
-	vg_uuids := C.lvm_list_vg_uuids(lvm.lvm)
-
-	for item := vg_uuids.n; item != vg_uuids; item = item.n {
-		uuids = append(uuids, C.GoString((*C.lvm_str_list_t)(unsafe.Pointer(item)).str))
-	}
-
-	return
-}
-
-func (lvm *LvmHandle) CreateVG(name string) (*VolumeGroup, error) {
+// CreateVG creates a volume group object with default parameters. Upon success, other methods may
+// be used to set non-default parameters, such as extent size. Once all parameters have been set,
+// call Write() to commit the new VG to disk, and Close() to release the handle.
+func (lvm *LVMHandle) CreateVG(name string) (*VolumeGroup, error) {
 	Cname := C.CString(name)
 	defer C.free(unsafe.Pointer(Cname))
 
@@ -132,7 +113,31 @@ func (lvm *LvmHandle) CreateVG(name string) (*VolumeGroup, error) {
 	return &VolumeGroup{lvm, vg}, nil
 }
 
-func (lvm *LvmHandle) OpenVg(name, mode string) (*VolumeGroup, error) {
+// GetVGNames returns a list of names of all volume groups in the system.
+func (lvm *LVMHandle) GetVGNames() (names []string) {
+	vg_names := C.lvm_list_vg_names(lvm.lvm)
+
+	for item := vg_names.n; item != vg_names; item = item.n {
+		names = append(names, C.GoString((*C.lvm_str_list_t)(unsafe.Pointer(item)).str))
+	}
+
+	return
+}
+
+// GetVGUUIDs returns a list of UUIDs of all volume groups in the system.
+func (lvm *LVMHandle) GetVGUUIDs() (uuids []string) {
+	vg_uuids := C.lvm_list_vg_uuids(lvm.lvm)
+
+	for item := vg_uuids.n; item != vg_uuids; item = item.n {
+		uuids = append(uuids, C.GoString((*C.lvm_str_list_t)(unsafe.Pointer(item)).str))
+	}
+
+	return
+}
+
+// OpenVG returns a VolumeGroup object for specified volume group name. The volume group can be
+// opened in read-only or read-write mode, specified by a string of "r" or "w" respectively.
+func (lvm *LVMHandle) OpenVG(name, mode string) (*VolumeGroup, error) {
 	Cname := C.CString(name)
 	Cmode := C.CString(mode)
 
@@ -147,30 +152,53 @@ func (lvm *LvmHandle) OpenVg(name, mode string) (*VolumeGroup, error) {
 	return &VolumeGroup{lvm, vg}, nil
 }
 
+// RemovePV removes a physical volume from the LVM subsystem.
+func (lvm *LVMHandle) RemovePV(name string) error {
+	Cname := C.CString(name)
+	defer C.free(unsafe.Pointer(Cname))
+
+	if C.lvm_pv_remove(lvm.lvm, Cname) != 0 {
+		return lvm.lastError()
+	}
+
+	return nil
+}
+
+// GetDevSize returns the current size of a device underlying a physical volume, in bytes. This
+// should be larger than the value returned by GetSize(), due to space occupied by metadata.
 func (pv *PhysicalVolume) GetDevSize() uint64 {
 	return uint64(C.lvm_pv_get_dev_size(pv.pv))
 }
 
+// GetFree returns the current unallocated space of a physical volume in bytes.
 func (pv *PhysicalVolume) GetFree() uint64 {
 	return uint64(C.lvm_pv_get_free(pv.pv))
 }
 
-func (pv *PhysicalVolume) GetMdaCount() uint64 {
+// GetMDACount returns the current number of metadata areas in a physical volume.
+func (pv *PhysicalVolume) GetMDACount() uint64 {
 	return uint64(C.lvm_pv_get_mda_count(pv.pv))
 }
 
+// GetName returns the current name of a physical volume, e.g., /dev/sda1.
 func (pv *PhysicalVolume) GetName() string {
 	return C.GoString(C.lvm_pv_get_name(pv.pv))
 }
 
+// GetSize returns the current size of a physical volume in bytes. This should be smaller than the
+// value returned by get GetDevSize(), due to space occupied by metadata.
 func (pv *PhysicalVolume) GetSize() uint64 {
 	return uint64(C.lvm_pv_get_size(pv.pv))
 }
 
-func (pv *PhysicalVolume) GetUuid() string {
+// GetUUID returns the current LVM UUID of a physical volume.
+func (pv *PhysicalVolume) GetUUID() string {
 	return C.GoString(C.lvm_pv_get_uuid(pv.pv))
 }
 
+// Close releases a VG handle and any resources associated with it. Since many underlying liblvm2
+// functions only release memory when a VG handle is closed, this should be called when a VG object
+// is no longer needed, to avoid leaking memory.
 func (vg *VolumeGroup) Close() error {
 	if C.lvm_vg_close(vg.vg) != 0 {
 		return vg.lvm.lastError()
@@ -179,8 +207,10 @@ func (vg *VolumeGroup) Close() error {
 	return nil
 }
 
-// Size must be at least one sector (512 bytes), and will be rounded up to the nearest extent
-func (vg *VolumeGroup) CreateLvLinear(name string, size uint64) (*LogicalVolume, error) {
+// CreateLVLinear creates a linear logical volume. The size, specified in bytes, must be at least
+// one sector (512 bytes), and will be rounded up to the next extent multiple. This method commits
+// the change to disk, and does not require calling Write().
+func (vg *VolumeGroup) CreateLVLinear(name string, size uint64) (*LogicalVolume, error) {
 	Cname := C.CString(name)
 	defer C.free(unsafe.Pointer(Cname))
 
@@ -192,6 +222,9 @@ func (vg *VolumeGroup) CreateLvLinear(name string, size uint64) (*LogicalVolume,
 	return &LogicalVolume{vg, lv}, nil
 }
 
+// Extend adds a physical volume to a volume group. After extending a volume group, Write() must be
+// called to commit the change to disk. Upon failure, retry the operation or release the VG handle
+// with Close().
 func (vg *VolumeGroup) Extend(device string) error {
 	Cdevice := C.CString(device)
 	defer C.free(unsafe.Pointer(Cdevice))
@@ -203,7 +236,7 @@ func (vg *VolumeGroup) Extend(device string) error {
 	return nil
 }
 
-// TEST ME
+// GetExtentCount returns the current number of total extents in a volume group.
 func (vg *VolumeGroup) GetExtentCount() uint64 {
 	return uint64(C.lvm_vg_get_extent_count(vg.vg))
 }
@@ -291,8 +324,8 @@ func (vg *VolumeGroup) Remove() error {
 	return nil
 }
 
-// Write commits a volume group to disk. Upon error, retry the operation and / or release the VG
-// handle with Close().
+// Write commits a volume group to disk. Upon error, retry the operation or release the VG handle
+// with Close().
 func (vg *VolumeGroup) Write() error {
 	if C.lvm_vg_write(vg.vg) != 0 {
 		return vg.lvm.lastError()

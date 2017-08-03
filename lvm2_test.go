@@ -76,7 +76,10 @@ func TestLVM2(t *testing.T) {
 
 	tmpfile.Close()
 
-	lvm := InitLVM()
+	lvm, err := InitLVM()
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer lvm.Close()
 
 	// Size of zero will use entire device
@@ -105,10 +108,10 @@ func TestLVM2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	vgNames := lvm.GetVgNames()
+	vgNames := lvm.GetVGNames()
 	t.Logf("VG names: %v\n", vgNames)
 
-	lv, err := vg.CreateLvLinear("testvol1", 50*(1<<20))
+	lv, err := vg.CreateLVLinear("testvol1", 50*(1<<20))
 	if err != nil {
 		t.Fatal(err)
 	}
