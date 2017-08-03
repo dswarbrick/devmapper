@@ -105,7 +105,7 @@ func TestLVM2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = vg.PvFromName(loopDevName)
+	_, err = vg.PVFromName(loopDevName)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,12 +113,12 @@ func TestLVM2(t *testing.T) {
 	vgNames := lvm.GetVgNames()
 	t.Logf("VG names: %v\n", vgNames)
 
-	lv, err := vg.CreateLvLinear("testvol1", 50 * (1 << 20))
+	lv, err := vg.CreateLvLinear("testvol1", 50*(1<<20))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	t.Logf("LV UUID: %s\n", lv.GetUuid())
+	t.Logf("LV UUID: %s\n", lv.GetUUID())
 	t.Logf("LV name: %s  size: %d  active: %v\n", lv.GetName(), lv.GetSize(), lv.IsActive())
 	t.Logf("LV attrs: %s\n", lv.GetAttrs())
 	t.Logf("Deactivating LV...")

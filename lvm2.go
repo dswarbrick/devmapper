@@ -31,26 +31,31 @@ type LvmHandle struct {
 	lvm C.lvm_t // Pointer to lvm C struct
 }
 
+// A PhysicalVolume represents an LVM physical volume object.
 type PhysicalVolume struct {
 	pv C.pv_t // Pointer to physical_volume C struct
 }
 
+// A VolumeGroup represents an LVM volume group object, can contain zero or more logical volumes,
+// and is comprised of one or more physical volumes.
 type VolumeGroup struct {
 	lvm *LvmHandle // Global LVM handle
 	vg  C.vg_t     // Pointer to volume_group C struct
 }
 
+// A LogicalVolume represents an LVM logical volume object, and belongs to a parent volume group.
 type LogicalVolume struct {
 	vg *VolumeGroup // Parent volume group
 	lv C.lv_t       // Pointer to logical_volume C struct
 }
 
-type lvmError struct {
+// LVMError represents an error from liblvm2.
+type LVMError struct {
 	errno  int
 	errmsg string
 }
 
-func (e *lvmError) Error() string {
+func (e *LVMError) Error() string {
 	return fmt.Sprintf("LVM error %d: %s", e.errno, e.errmsg)
 }
 
@@ -63,7 +68,7 @@ func InitLVM() *LvmHandle {
 }
 
 func (lvm *LvmHandle) lastError() error {
-	err := &lvmError{
+	err := &LVMError{
 		errno:  int(C.lvm_errno(lvm.lvm)),
 		errmsg: C.GoString(C.lvm_errmsg(lvm.lvm)),
 	}
@@ -210,48 +215,55 @@ func (vg *VolumeGroup) GetExtentCount() uint64 {
 	return uint64(C.lvm_vg_get_extent_count(vg.vg))
 }
 
-// TEST ME
+// GetExtentSize returns the current extent size of a volume group in bytes.
 func (vg *VolumeGroup) GetExtentSize() uint64 {
 	return uint64(C.lvm_vg_get_extent_size(vg.vg))
 }
 
-// TEST ME
+// GetFreeExtentCount returns the current number of free extents in a volume group.
 func (vg *VolumeGroup) GetFreeExtentCount() uint64 {
 	return uint64(C.lvm_vg_get_free_extent_count(vg.vg))
 }
 
-// TEST ME
+// GetFreeSize returns the current unallocated space of a volume group in bytes.
 func (vg *VolumeGroup) GetFreeSize() uint64 {
 	return uint64(C.lvm_vg_get_free_size(vg.vg))
 }
 
-func (vg *VolumeGroup) GetMaxLv() uint64 {
+// GetMaxLV returns the maximum number of logical volumes allowed in a volume group.
+func (vg *VolumeGroup) GetMaxLV() uint64 {
 	return uint64(C.lvm_vg_get_max_lv(vg.vg))
 }
 
+// GetName returns the current name of a volume group.
 func (vg *VolumeGroup) GetName() string {
 	return C.GoString(C.lvm_vg_get_name(vg.vg))
 }
 
-func (vg *VolumeGroup) GetPvCount() uint64 {
+// GetPVCount returns the current number of physical volumes of a volume group.
+func (vg *VolumeGroup) GetPVCount() uint64 {
 	return uint64(C.lvm_vg_get_pv_count(vg.vg))
 }
 
-// TEST ME
+// GetSequenceNum returns the current metadata sequence number of a volume group. The metadata
+// sequence number is incrented for each metadata change. Applications may use the sequence number
+// to determine if any LVM objects have changed from a prior query.
 func (vg *VolumeGroup) GetSequenceNum() uint64 {
 	return uint64(C.lvm_vg_get_seqno(vg.vg))
 }
 
-// TEST ME
+// GetSize returns the current size of a volume group in bytes.
 func (vg *VolumeGroup) GetSize() uint64 {
 	return uint64(C.lvm_vg_get_size(vg.vg))
 }
 
-func (vg *VolumeGroup) GetUuid() string {
+// GetUUID returns the current LVM UUID of a volume group.
+func (vg *VolumeGroup) GetUUID() string {
 	return C.GoString(C.lvm_vg_get_uuid(vg.vg))
 }
 
-func (vg *VolumeGroup) PvFromName(device string) (*PhysicalVolume, error) {
+// PVFromName returns an object representing the physical volume specified by name.
+func (vg *VolumeGroup) PVFromName(device string) (*PhysicalVolume, error) {
 	Cdevice := C.CString(device)
 	defer C.free(unsafe.Pointer(Cdevice))
 
@@ -263,7 +275,8 @@ func (vg *VolumeGroup) PvFromName(device string) (*PhysicalVolume, error) {
 	return &PhysicalVolume{pv}, nil
 }
 
-func (vg *VolumeGroup) PvFromUuid(uuid string) (*PhysicalVolume, error) {
+// PVFromUUID returns an object representing the physical volume specified by UUID.
+func (vg *VolumeGroup) PVFromUUID(uuid string) (*PhysicalVolume, error) {
 	Cuuid := C.CString(uuid)
 	defer C.free(unsafe.Pointer(Cuuid))
 
@@ -275,6 +288,8 @@ func (vg *VolumeGroup) PvFromUuid(uuid string) (*PhysicalVolume, error) {
 	return &PhysicalVolume{pv}, nil
 }
 
+// Remove removes an underlying LVM handle to a volume group in memory, and requires calling
+// Write() to commit the removal to disk.
 func (vg *VolumeGroup) Remove() error {
 	if C.lvm_vg_remove(vg.vg) != 0 {
 		return vg.lvm.lastError()
@@ -283,6 +298,8 @@ func (vg *VolumeGroup) Remove() error {
 	return nil
 }
 
+// Write commits a volume group to disk. Upon error, retry the operation and / or release the VG
+// handle with Close().
 func (vg *VolumeGroup) Write() error {
 	if C.lvm_vg_write(vg.vg) != 0 {
 		return vg.lvm.lastError()
@@ -291,6 +308,7 @@ func (vg *VolumeGroup) Write() error {
 	return nil
 }
 
+// Activate activates a logical volume, and is equivalent to the lvm command "lvchange -ay".
 func (lv *LogicalVolume) Activate() error {
 	if C.lvm_lv_activate(lv.lv) != 0 {
 		return lv.vg.lvm.lastError()
@@ -299,6 +317,7 @@ func (lv *LogicalVolume) Activate() error {
 	return nil
 }
 
+// Deactivate deactivates a logical volume, and is equivalent to the lvm command "lvchange -an".
 func (lv *LogicalVolume) Deactivate() error {
 	if C.lvm_lv_deactivate(lv.lv) != 0 {
 		return lv.vg.lvm.lastError()
@@ -307,28 +326,33 @@ func (lv *LogicalVolume) Deactivate() error {
 	return nil
 }
 
+// GetAttrs returns the current attributes of a logical volume, e.g.: "-wi-a-----".
 func (lv *LogicalVolume) GetAttrs() []byte {
-	// Return byte slice of logical volume attrs, e.g.: -wi-a-----
 	return []byte(C.GoString(C.lvm_lv_get_attr(lv.lv)))
 }
 
+// GetName returns the current name of a logical volume.
 func (lv *LogicalVolume) GetName() string {
 	return C.GoString(C.lvm_lv_get_name(lv.lv))
 }
 
-// Size is in bytes, not extents
+// GetSize returns the current size of a logical volume in bytes.
 func (lv *LogicalVolume) GetSize() uint64 {
 	return uint64(C.lvm_lv_get_size(lv.lv))
 }
 
-func (lv *LogicalVolume) GetUuid() string {
+// GetUUID returns the current LVM UUID of a logical volume.
+func (lv *LogicalVolume) GetUUID() string {
 	return C.GoString(C.lvm_lv_get_uuid(lv.lv))
 }
 
+// IsActive returns the current activation state of a logical volume.
 func (lv *LogicalVolume) IsActive() bool {
 	return C.lvm_lv_is_active(lv.lv) == 1
 }
 
+// Remove removes a logical volume from its volume group. This function commits the change to disk
+// and does not require calling Write().
 func (lv *LogicalVolume) Remove() error {
 	if C.lvm_vg_remove_lv(lv.lv) != 0 {
 		return lv.vg.lvm.lastError()
