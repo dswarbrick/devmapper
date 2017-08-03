@@ -1,11 +1,6 @@
-/*
- * Devicemapper / LVM bindings for Go
- * Copyright 2017 Daniel Swarbrick
-
- * LVM2 tests
- */
-
 // +build linux
+
+// Tests for Go LVM bindings
 
 package devmapper
 

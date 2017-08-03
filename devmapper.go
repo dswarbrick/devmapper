@@ -1,13 +1,9 @@
-/*
- * Devicemapper / LVM bindings for Go
- * Copyright 2017 Daniel Swarbrick
- *
- * This package contains some alternatives to functions in
- * https://github.com/docker/docker/tree/master/pkg/devicemapper
- */
-
 // +build linux
 
+// Package devicemapper is a collection of wrappers around libdevmapper / liblvm2.
+//
+// Copyright 2017 Daniel Swarbrick.
+//
 package devmapper
 
 // #cgo LDFLAGS: -ldevmapper

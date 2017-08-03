@@ -1,10 +1,6 @@
-/*
- * Devicemapper / LVM bindings for Go
- * Copyright 2017 Daniel Swarbrick
-
- * dm-cache Statistics Parser
- * See dm-cache documentation at: https://www.kernel.org/doc/Documentation/device-mapper/cache.txt
- */
+// dm-cache Statistics Parser
+// Copyright 2017 Daniel Swarbrick
+// See dm-cache documentation at: https://www.kernel.org/doc/Documentation/device-mapper/cache.txt
 
 package devmapper
 

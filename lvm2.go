@@ -1,14 +1,7 @@
-/*
- * Devicemapper / LVM bindings for Go
- * Copyright 2017 Daniel Swarbrick
- *
- * This package contains some alternatives to functions in
- * https://github.com/docker/docker/tree/master/pkg/devicemapper
- *
- * TODO: Add error checking and return to all methods
- */
-
 // +build linux
+
+// LVM bindings for Go
+// Copyright 2017 Daniel Swarbrick
 
 package devmapper
 
