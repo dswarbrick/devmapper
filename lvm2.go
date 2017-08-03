@@ -27,12 +27,13 @@ const (
 	LVM_VG_READ_WRITE = "w"
 )
 
-// Alias the LVM2 C struct so that we can attach our own methods to them
-type CLvm C.struct_lvm
+type LvmHandle struct {
+	lvm C.lvm_t // Pointer to lvm C struct
+}
 
 type VolumeGroup struct {
-	lvm_t *CLvm
-	vg    C.vg_t // Pointer to volume_group C struct
+	lvm *LvmHandle // Global LVM handle
+	vg  C.vg_t     // Pointer to volume_group C struct
 }
 
 type LogicalVolume struct {
@@ -49,46 +50,46 @@ func (e *lvmError) Error() string {
 	return fmt.Sprintf("LVM error %d: %s", e.errno, e.errmsg)
 }
 
-func InitLVM() *CLvm {
+func InitLVM() *LvmHandle {
 	// lvm_init returns an lvm_t, which is a pointer to a lvm struct. Since method receivers cannot
 	// receive pointer types, we need to cast it to a *C.struct_lvm before we return it.
 	lvm := C.lvm_init(nil)
 
-	return (*CLvm)(unsafe.Pointer(lvm))
+	return &LvmHandle{lvm}
 }
 
-func (lvm *CLvm) lastError() error {
+func (lvm *LvmHandle) lastError() error {
 	err := &lvmError{
-		errno:  int(C.lvm_errno((*C.struct_lvm)(lvm))),
-		errmsg: C.GoString(C.lvm_errmsg((*C.struct_lvm)(lvm))),
+		errno:  int(C.lvm_errno(lvm.lvm)),
+		errmsg: C.GoString(C.lvm_errmsg(lvm.lvm)),
 	}
 
 	return err
 }
 
-func (lvm *CLvm) Close() {
-	C.lvm_quit((*C.struct_lvm)(lvm))
+func (lvm *LvmHandle) Close() {
+	C.lvm_quit(lvm.lvm)
 }
 
 // CreatePV creates a physical volume on the specified absolute device name (e.g., /dev/sda1), with
 // size `size` bytes. Size should be a multiple of 512 bytes. A size of zero bytes will use the
 // entire device.
-func (lvm *CLvm) CreatePV(device string, size uint64) error {
+func (lvm *LvmHandle) CreatePV(device string, size uint64) error {
 	Cdevice := C.CString(device)
 	defer C.free(unsafe.Pointer(Cdevice))
 
-	if C.lvm_pv_create((*C.struct_lvm)(lvm), Cdevice, C.uint64_t(size)) != 0 {
+	if C.lvm_pv_create(lvm.lvm, Cdevice, C.uint64_t(size)) != 0 {
 		return lvm.lastError()
 	}
 
 	return nil
 }
 
-func (lvm *CLvm) RemovePV(name string) error {
+func (lvm *LvmHandle) RemovePV(name string) error {
 	Cname := C.CString(name)
 	defer C.free(unsafe.Pointer(Cname))
 
-	if C.lvm_pv_remove((*C.struct_lvm)(lvm), Cname) != 0 {
+	if C.lvm_pv_remove(lvm.lvm, Cname) != 0 {
 		return lvm.lastError()
 	}
 
@@ -96,8 +97,8 @@ func (lvm *CLvm) RemovePV(name string) error {
 }
 
 // GetVgNames returns a slice of strings containing volume group names
-func (lvm *CLvm) GetVgNames() (names []string) {
-	vg_names := C.lvm_list_vg_names((*C.struct_lvm)(lvm))
+func (lvm *LvmHandle) GetVgNames() (names []string) {
+	vg_names := C.lvm_list_vg_names(lvm.lvm)
 
 	for item := vg_names.n; item != vg_names; item = item.n {
 		names = append(names, C.GoString((*C.lvm_str_list_t)(unsafe.Pointer(item)).str))
@@ -107,8 +108,8 @@ func (lvm *CLvm) GetVgNames() (names []string) {
 }
 
 // GetVgNames returns a slice of strings containing volume group UUIDs
-func (lvm *CLvm) GetVgUuids() (uuids []string) {
-	vg_uuids := C.lvm_list_vg_uuids((*C.struct_lvm)(lvm))
+func (lvm *LvmHandle) GetVgUuids() (uuids []string) {
+	vg_uuids := C.lvm_list_vg_uuids(lvm.lvm)
 
 	for item := vg_uuids.n; item != vg_uuids; item = item.n {
 		uuids = append(uuids, C.GoString((*C.lvm_str_list_t)(unsafe.Pointer(item)).str))
@@ -117,11 +118,11 @@ func (lvm *CLvm) GetVgUuids() (uuids []string) {
 	return
 }
 
-func (lvm *CLvm) CreateVG(name string) (*VolumeGroup, error) {
+func (lvm *LvmHandle) CreateVG(name string) (*VolumeGroup, error) {
 	Cname := C.CString(name)
 	defer C.free(unsafe.Pointer(Cname))
 
-	vg := C.lvm_vg_create((*C.struct_lvm)(lvm), Cname)
+	vg := C.lvm_vg_create(lvm.lvm, Cname)
 	if vg == nil {
 		return nil, lvm.lastError()
 	}
@@ -129,14 +130,14 @@ func (lvm *CLvm) CreateVG(name string) (*VolumeGroup, error) {
 	return &VolumeGroup{lvm, vg}, nil
 }
 
-func (lvm *CLvm) OpenVg(name, mode string) (*VolumeGroup, error) {
+func (lvm *LvmHandle) OpenVg(name, mode string) (*VolumeGroup, error) {
 	Cname := C.CString(name)
 	Cmode := C.CString(mode)
 
 	defer C.free(unsafe.Pointer(Cname))
 	defer C.free(unsafe.Pointer(Cmode))
 
-	vg := C.lvm_vg_open((*C.struct_lvm)(lvm), Cname, Cmode, 0)
+	vg := C.lvm_vg_open(lvm.lvm, Cname, Cmode, 0)
 	if vg == nil {
 		return nil, lvm.lastError()
 	}
@@ -146,7 +147,7 @@ func (lvm *CLvm) OpenVg(name, mode string) (*VolumeGroup, error) {
 
 func (vg *VolumeGroup) Close() error {
 	if C.lvm_vg_close(vg.vg) != 0 {
-		return vg.lvm_t.lastError()
+		return vg.lvm.lastError()
 	}
 
 	return nil
@@ -157,7 +158,7 @@ func (vg *VolumeGroup) Extend(device string) error {
 	defer C.free(unsafe.Pointer(Cdevice))
 
 	if C.lvm_vg_extend(vg.vg, Cdevice) != 0 {
-		return vg.lvm_t.lastError()
+		return vg.lvm.lastError()
 	}
 
 	return nil
@@ -165,7 +166,7 @@ func (vg *VolumeGroup) Extend(device string) error {
 
 func (vg *VolumeGroup) Remove() error {
 	if C.lvm_vg_remove(vg.vg) != 0 {
-		return vg.lvm_t.lastError()
+		return vg.lvm.lastError()
 	}
 
 	return nil
@@ -173,7 +174,7 @@ func (vg *VolumeGroup) Remove() error {
 
 func (vg *VolumeGroup) Write() error {
 	if C.lvm_vg_write(vg.vg) != 0 {
-		return vg.lvm_t.lastError()
+		return vg.lvm.lastError()
 	}
 
 	return nil
@@ -210,7 +211,7 @@ func (vg *VolumeGroup) CreateLvLinear(name string, size uint64) (*LogicalVolume,
 
 	lv := C.lvm_vg_create_lv_linear(vg.vg, Cname, C.uint64_t(size))
 	if lv == nil {
-		return nil, vg.lvm_t.lastError()
+		return nil, vg.lvm.lastError()
 	}
 
 	return &LogicalVolume{vg, lv}, nil
@@ -218,7 +219,7 @@ func (vg *VolumeGroup) CreateLvLinear(name string, size uint64) (*LogicalVolume,
 
 func (lv *LogicalVolume) Activate() error {
 	if C.lvm_lv_activate(lv.lv) != 0 {
-		return lv.vg.lvm_t.lastError()
+		return lv.vg.lvm.lastError()
 	}
 
 	return nil
@@ -226,7 +227,7 @@ func (lv *LogicalVolume) Activate() error {
 
 func (lv *LogicalVolume) Deactivate() error {
 	if C.lvm_lv_deactivate(lv.lv) != 0 {
-		return lv.vg.lvm_t.lastError()
+		return lv.vg.lvm.lastError()
 	}
 
 	return nil
@@ -255,7 +256,7 @@ func (lv *LogicalVolume) IsActive() bool {
 
 func (lv *LogicalVolume) Remove() error {
 	if C.lvm_vg_remove_lv(lv.lv) != 0 {
-		return lv.vg.lvm_t.lastError()
+		return lv.vg.lvm.lastError()
 	}
 
 	return nil
