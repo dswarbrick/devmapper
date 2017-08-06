@@ -30,6 +30,8 @@ func attachLoopDev(loopDev int, filename string) error {
 		return fmt.Errorf("Cannot open %s - %s", filename, err)
 	}
 
+	defer syscall.Close(backingFd)
+
 	r1, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(loopFd), LOOP_SET_FD, uintptr(backingFd))
 	if int(r1) == -1 {
 		return fmt.Errorf("LOOP_SET_FD ioctl failed: errno %d", errno)
