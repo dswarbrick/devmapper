@@ -1,5 +1,7 @@
-// dm-cache Statistics Parser
-// Copyright 2017 Daniel Swarbrick
+// Copyright 2017 Daniel Swarbrick. All rights reserved.
+// Use of this source code is governed by a GPL license that can be found in the LICENSE file.
+
+// dm-cache Statistics Parser.
 // See dm-cache documentation at: https://www.kernel.org/doc/Documentation/device-mapper/cache.txt
 
 package devmapper
