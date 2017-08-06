@@ -14,20 +14,11 @@ import (
 	"time"
 )
 
-const (
-	// Defined in <linux/loop.h>
-	LOOP_SET_FD       = 0x4c00
-	LOOP_CLR_FD       = 0x4c01
-	LOOP_CTL_GET_FREE = 0x4c82
-
-	LOOP_SIZE = 100 * (1 << 20)
-)
-
 func randString(length int) string {
 	rand.Seed(time.Now().UnixNano())
 
-	letters := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-	b := make([]rune, length)
+	letters := []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+	b := make([]byte, length)
 
 	for i := range b {
 		b[i] = letters[rand.Intn(len(letters))]
@@ -48,33 +39,24 @@ func TestLVM2(t *testing.T) {
 
 	defer os.Remove(tmpfile.Name())
 
-	// Truncating the new file to non-zero size should create a sparse file
-	if syscall.Ftruncate(int(tmpfile.Fd()), LOOP_SIZE) != nil {
-		t.Fail()
+	// Create 100 MiB sparse file
+	if err := syscall.Ftruncate(int(tmpfile.Fd()), 100*(1<<20)); err != nil {
+		t.Fatal(err)
 	}
 
-	fd, err := syscall.Open("/dev/loop-control", syscall.O_RDWR, 0600)
-	if err != nil {
-		t.Fatal("Cannot open /dev/loop-control:", err)
-	}
+	tmpfile.Close()
 
 	// Get next available loop device
-	loop_dev, _, _ := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), LOOP_CTL_GET_FREE, 0)
-	t.Logf("Available loop dev: %d\n", loop_dev)
-	syscall.Close(fd)
+	loop_dev, err := getFreeLoopDev()
+	if err != nil {
+		t.Fatal("Cannot determine next available loop device:", err)
+	}
 
 	loopDevName := fmt.Sprintf("/dev/loop%d", loop_dev)
 
-	dev_fd, err := syscall.Open(loopDevName, syscall.O_RDWR, 0600)
-	if err != nil {
-		t.Fatal("LOOP_SET_FD failed: cannot open %s - %s", loopDevName, err)
+	if err := attachLoopDev(loop_dev, tmpfile.Name()); err != nil {
+		t.Fatal("Cannot attach loop device: %s", err)
 	}
-
-	// Associate the tmpfile with the available loop device
-	r1, r2, err := syscall.Syscall(syscall.SYS_IOCTL, uintptr(dev_fd), LOOP_SET_FD, tmpfile.Fd())
-	t.Logf("LOOP_SET_FD r1: %#v r2: %#v err: %#v", r1, r2, err)
-
-	tmpfile.Close()
 
 	lvm, err := InitLVM()
 	if err != nil {
@@ -157,9 +139,5 @@ func TestLVM2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Disassociate the loop dev_fd from any file descriptor
-	r1, r2, err = syscall.Syscall(syscall.SYS_IOCTL, uintptr(dev_fd), LOOP_CLR_FD, 0)
-	t.Logf("LOOP_CLR_FD r1: %#v r2: %#v err: %#v", r1, r2, err)
-
-	syscall.Close(dev_fd)
+	detachLoopDev(loop_dev)
 }
