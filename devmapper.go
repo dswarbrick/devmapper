@@ -1,6 +1,6 @@
 // +build linux
 
-// Copyright 2017 Daniel Swarbrick. All rights reserved.
+// Copyright 2017-18 Daniel Swarbrick. All rights reserved.
 // Use of this source code is governed by a GPL license that can be found in the LICENSE file.
 
 // Package devicemapper is a collection of wrappers around libdevmapper / liblvm2.

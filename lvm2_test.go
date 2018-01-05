@@ -1,6 +1,6 @@
 // +build linux
 
-// Copyright 2017 Daniel Swarbrick. All rights reserved.
+// Copyright 2017-18 Daniel Swarbrick. All rights reserved.
 // Use of this source code is governed by a GPL license that can be found in the LICENSE file.
 
 // Tests for Go LVM bindings.
@@ -12,9 +12,10 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
-	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func randString(length int) string {
@@ -43,7 +44,7 @@ func TestLVM2(t *testing.T) {
 	defer os.Remove(tmpfile.Name())
 
 	// Create 100 MiB sparse file
-	if err := syscall.Ftruncate(int(tmpfile.Fd()), 100*(1<<20)); err != nil {
+	if err := unix.Ftruncate(int(tmpfile.Fd()), 100*(1<<20)); err != nil {
 		t.Fatal(err)
 	}
 
